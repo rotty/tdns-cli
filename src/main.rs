@@ -1,5 +1,11 @@
 use std::{
+    collections::BTreeSet,
+    convert::TryFrom,
+    fmt,
+    iter::FromIterator,
     net::{IpAddr, SocketAddr},
+    str::FromStr,
+    string::FromUtf8Error,
     time::{Duration, Instant},
 };
 
@@ -117,7 +123,142 @@ struct Opt {
     timeout: Option<u64>,
     domain: rr::Name,
     entry: rr::Name,
-    text: String,
+    expected: Vec<Data>,
+}
+
+#[derive(Debug, Clone, Eq, PartialEq)]
+struct RecordSet(BTreeSet<Data>);
+
+impl RecordSet {
+    fn satisfied_by(&self, rrs: &[rr::Record]) -> bool {
+        rrs.iter()
+            .map(|rr| Data::try_from(rr.rdata()))
+            .collect::<Result<Vec<_>, _>>()
+            .ok()
+            .map(|items| self == &RecordSet::from_iter(items))
+            .unwrap_or(false)
+    }
+}
+
+impl fmt::Display for RecordSet {
+    fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
+        write!(f, "[")?;
+        for (i, item) in self.0.iter().enumerate() {
+            if i + 1 < self.0.len() {
+                write!(f, "{}, ", item)?;
+            } else {
+                write!(f, "{}", item)?;
+            }
+        }
+        write!(f, "]")?;
+        Ok(())
+    }
+}
+
+impl FromIterator<Data> for RecordSet {
+    fn from_iter<T>(iter: T) -> Self
+    where
+        T: IntoIterator<Item = Data>,
+    {
+        RecordSet(iter.into_iter().collect())
+    }
+}
+
+#[derive(Debug, Clone, Hash, Eq, PartialEq, Ord, PartialOrd)]
+enum Data {
+    // Simplified representation, containing only a single part.
+    Txt(String),
+}
+
+impl TryFrom<&rr::RData> for Data {
+    type Error = TryFromRDataError;
+
+    fn try_from(rdata: &rr::RData) -> Result<Self, Self::Error> {
+        match rdata {
+            rr::RData::TXT(txt) => Ok(Data::Txt(
+                txt.txt_data()
+                    .iter()
+                    .map(|item| {
+                        String::from_utf8(item.to_vec()).map_err(TryFromRDataError::FromUtf8)
+                    })
+                    .collect::<Result<_, _>>()?,
+            )),
+            _ => Err(TryFromRDataError::UnsupportedType(rdata.to_record_type())),
+        }
+    }
+}
+
+enum TryFromRDataError {
+    UnsupportedType(RecordType),
+    FromUtf8(FromUtf8Error),
+}
+
+impl fmt::Display for Data {
+    fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
+        match self {
+            Data::Txt(content) => if content.chars().any(char::is_whitespace) {
+                write!(f, "TXT:'{}'", content)
+            } else {
+                write!(f, "TXT:{}", content)
+            }
+        }
+    }
+}
+
+impl FromStr for Data {
+    type Err = DataParseError;
+
+    fn from_str(s: &str) -> Result<Self, Self::Err> {
+        let parts: Vec<_> = s.splitn(2, ':').collect();
+        if parts.len() != 2 {
+            return Err(DataParseError::MissingType);
+        }
+        let (rtype, rdata) = (parts[0].to_uppercase(), parts[1]);
+        match rtype.as_str() {
+            "TXT" => Ok(Data::Txt(rdata.into())),
+            _ => Err(DataParseError::UnknownType),
+        }
+    }
+}
+
+#[derive(Debug)]
+enum DataParseError {
+    MissingType,
+    UnknownType,
+}
+
+impl fmt::Display for DataParseError {
+    fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
+        use DataParseError::*;
+        match self {
+            MissingType => write!(f, "missing type"),
+            UnknownType => write!(f, "unknown type"),
+        }
+    }
+}
+
+struct ShowRecordData<'a>(&'a [Record]);
+
+impl<'a> fmt::Display for ShowRecordData<'a> {
+    fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
+        write!(f, "[")?;
+        for (i, item) in self.0.iter().enumerate() {
+            match Data::try_from(item.rdata()) {
+                Ok(data) => write!(f, "{}", data)?,
+                Err(e) => match e {
+                    TryFromRDataError::UnsupportedType(rtype) => write!(f, "unknown:{}", rtype)?,
+                    TryFromRDataError::FromUtf8(e) => {
+                        write!(f, "non-utf8:'{}'", String::from_utf8_lossy(e.as_bytes()))?
+                    }
+                },
+            }
+            if i + 1 < self.0.len() {
+                write!(f, ", ")?;
+            }
+        }
+        write!(f, "]")?;
+        Ok(())
+    }
 }
 
 fn main() {
@@ -126,11 +267,11 @@ fn main() {
     let recursor = open_recursor(runtime.handle(), opt.recursor);
     let name = opt.domain;
     let handle = runtime.handle();
-    let entry = opt.entry;
+    let entry = opt.entry.append_name(&name);
     let timeout = opt.timeout.unwrap_or(5);
 
     let get_authorative = get_ns_records(recursor.clone(), name).map_err(failure::Error::from);
-    let expected = vec![rr::RData::TXT(rr::rdata::txt::TXT::new(vec![opt.text]))];
+    let expected = RecordSet::from_iter(opt.expected);
     let client = get_authorative
         .and_then(move |authorative| {
             future::join_all(authorative.into_iter().map(move |record| {
@@ -140,11 +281,20 @@ fn main() {
                     recursor.clone(),
                     record.rdata().as_ns().unwrap().clone(),
                     entry.clone(),
-                    RecordType::A,
+                    RecordType::TXT, // TODO: more types
                     move |server, records| {
-                        let rdata = records.iter().map(Record::rdata);
-                        println!("got records from {:?} {:?}", server, records);
-                        rdata.eq(expected.iter())
+                        let matched = expected.satisfied_by(records);
+                        if !matched {
+                            println!(
+                                "{}: records not matching: expected {}, found {}",
+                                server,
+                                expected,
+                                ShowRecordData(records),
+                            );
+                        } else {
+                            println!("{}: match found", server);
+                        }
+                        matched
                     },
                 )
             }))
