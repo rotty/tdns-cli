@@ -3,7 +3,8 @@ use std::{
     convert::TryFrom,
     fmt,
     iter::FromIterator,
-    net::{IpAddr, SocketAddr},
+    net::{self, IpAddr, SocketAddr},
+    net::{Ipv4Addr, Ipv6Addr},
     str::FromStr,
     string::FromUtf8Error,
     time::{Duration, Instant},
@@ -21,7 +22,7 @@ use trust_dns::{
     client::{ClientFuture, ClientHandle},
     op::DnsResponse,
     proto::{
-        op::{query::Query, message::Message},
+        op::{message::Message, query::Query},
         xfer::{dns_handle::DnsHandle, dns_request::DnsRequest},
     },
     rr::{self, DNSClass, Record, RecordType},
@@ -95,7 +96,11 @@ where
         });
 
     let mut message = Message::new();
-    message.add_queries(record_types.iter().map(|rtype| Query::query(name.clone(), *rtype)));
+    message.add_queries(
+        record_types
+            .iter()
+            .map(|rtype| Query::query(name.clone(), *rtype)),
+    );
     use future::Loop;
     let poller = resolve.and_then(move |mut client| {
         future::loop_fn(done, move |done| {
@@ -176,13 +181,17 @@ impl FromIterator<Data> for RecordSet {
 #[derive(Debug, Clone, Hash, Eq, PartialEq, Ord, PartialOrd)]
 enum Data {
     // Simplified representation, containing only a single part.
-    Txt(String),
+    TXT(String),
+    A(Ipv4Addr),
+    AAAA(Ipv6Addr),
 }
 
 impl Data {
     fn to_record_type(&self) -> RecordType {
         match self {
-            Data::Txt(_) => RecordType::TXT,
+            Data::TXT(_) => RecordType::TXT,
+            Data::A(_) => RecordType::A,
+            Data::AAAA(_) => RecordType::AAAA,
         }
     }
 }
@@ -192,7 +201,9 @@ impl TryFrom<&rr::RData> for Data {
 
     fn try_from(rdata: &rr::RData) -> Result<Self, Self::Error> {
         match rdata {
-            rr::RData::TXT(txt) => Ok(Data::Txt(
+            rr::RData::A(addr) => Ok(Data::A(addr.clone())),
+            rr::RData::AAAA(addr) => Ok(Data::AAAA(addr.clone())),
+            rr::RData::TXT(txt) => Ok(Data::TXT(
                 txt.txt_data()
                     .iter()
                     .map(|item| {
@@ -213,13 +224,15 @@ enum TryFromRDataError {
 impl fmt::Display for Data {
     fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
         match self {
-            Data::Txt(content) => {
+            Data::TXT(content) => {
                 if content.chars().any(char::is_whitespace) {
                     write!(f, "TXT:'{}'", content)
                 } else {
                     write!(f, "TXT:{}", content)
                 }
             }
+            Data::A(addr) => write!(f, "A:{}", addr),
+            Data::AAAA(addr) => write!(f, "AAAA:{}", addr),
         }
     }
 }
@@ -234,7 +247,9 @@ impl FromStr for Data {
         }
         let (rtype, rdata) = (parts[0].to_uppercase(), parts[1]);
         match rtype.as_str() {
-            "TXT" => Ok(Data::Txt(rdata.into())),
+            "TXT" => Ok(Data::TXT(rdata.into())),
+            "A" => Ok(Data::A(rdata.parse().map_err(DataParseError::Addr)?)),
+            "AAAA" => Ok(Data::AAAA(rdata.parse().map_err(DataParseError::Addr)?)),
             _ => Err(DataParseError::UnknownType),
         }
     }
@@ -244,6 +259,7 @@ impl FromStr for Data {
 enum DataParseError {
     MissingType,
     UnknownType,
+    Addr(net::AddrParseError),
 }
 
 impl fmt::Display for DataParseError {
@@ -252,6 +268,7 @@ impl fmt::Display for DataParseError {
         match self {
             MissingType => write!(f, "missing type"),
             UnknownType => write!(f, "unknown type"),
+            Addr(e) => write!(f, "invalid address: {}", e),
         }
     }
 }
