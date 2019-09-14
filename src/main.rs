@@ -5,6 +5,7 @@ use std::{
     iter::FromIterator,
     net::{self, IpAddr, SocketAddr},
     net::{Ipv4Addr, Ipv6Addr},
+    rc::Rc,
     str::FromStr,
     string::FromUtf8Error,
     time::{Duration, Instant},
@@ -68,9 +69,31 @@ where
     query
 }
 
-fn poll_entries<F>(
-    runtime: RuntimeHandle,
+fn connect_authorative(runtime: RuntimeHandle, addr: IpAddr) -> impl DnsHandle {
+    let stream = UdpClientStream::<UdpSocket>::new(SocketAddr::new(addr, 53));
+    let (bg, client) = ClientFuture::connect(stream);
+    runtime.spawn(bg).unwrap();
+    client
+}
+
+fn resolve_authorative(
     recursor: impl DnsHandle,
+    server_name: rr::Name,
+) -> impl Future<Item = IpAddr, Error = failure::Error> {
+    let server_name_err = server_name.clone();
+    query_ip_addr(recursor, &server_name)
+        .map_err(failure::Error::from)
+        .and_then(move |addrs| {
+            let client = addrs
+                .first()
+                .cloned()
+                .ok_or_else(|| format_err!("could not resolve server name: {}", server_name_err))?;
+            Ok(client)
+        })
+}
+
+fn poll_entries<F>(
+    mut server: impl DnsHandle,
     server_name: rr::Name,
     name: rr::Name,
     record_types: &[RecordType],
@@ -79,22 +102,6 @@ fn poll_entries<F>(
 where
     F: Fn(&rr::Name, &[Record]) -> bool + 'static,
 {
-    let server_name_err = server_name.clone();
-    let resolve = query_ip_addr(recursor, &server_name)
-        .map_err(failure::Error::from)
-        .and_then(move |addrs| {
-            let client = addrs
-                .first()
-                .map(|addr| {
-                    let stream = UdpClientStream::<UdpSocket>::new(SocketAddr::new(*addr, 53));
-                    let (bg, client) = ClientFuture::connect(stream);
-                    runtime.spawn(bg).unwrap();
-                    client
-                })
-                .ok_or_else(|| format_err!("could not resolve server name: {}", server_name_err))?;
-            Ok(client)
-        });
-
     let mut message = Message::new();
     message.add_queries(
         record_types
@@ -102,25 +109,23 @@ where
             .map(|rtype| Query::query(name.clone(), *rtype)),
     );
     use future::Loop;
-    let poller = resolve.and_then(move |mut client| {
-        future::loop_fn(done, move |done| {
-            let server_name = server_name.clone();
-            client
-                .send(DnsRequest::new(message.clone(), Default::default()))
-                .map_err(failure::Error::from)
-                .and_then(move |response: DnsResponse| {
-                    if done(&server_name, response.answers()) {
-                        Either::A(future::ok(Loop::Break(())))
-                    } else {
-                        let when = Instant::now() + Duration::from_millis(500);
-                        Either::B(
-                            Delay::new(when)
-                                .map_err(failure::Error::from)
-                                .map(|_| Loop::Continue(done)),
-                        )
-                    }
-                })
-        })
+    let poller = future::loop_fn(done, move |done| {
+        let server_name = server_name.clone();
+        server
+            .send(DnsRequest::new(message.clone(), Default::default()))
+            .map_err(failure::Error::from)
+            .and_then(move |response: DnsResponse| {
+                if done(&server_name, response.answers()) {
+                    Either::A(future::ok(Loop::Break(())))
+                } else {
+                    let when = Instant::now() + Duration::from_millis(500);
+                    Either::B(
+                        Delay::new(when)
+                            .map_err(failure::Error::from)
+                            .map(|_| Loop::Continue(done)),
+                    )
+                }
+            })
     });
     poller
 }
@@ -134,6 +139,8 @@ struct Opt {
     domain: rr::Name,
     entry: rr::Name,
     expected: Vec<Data>,
+    #[structopt(long = "exclude")]
+    exclude: Option<IpAddr>,
 }
 
 #[derive(Debug, Clone, Eq, PartialEq)]
@@ -297,6 +304,34 @@ impl<'a> fmt::Display for ShowRecordData<'a> {
     }
 }
 
+fn poll_server(
+    server: impl DnsHandle,
+    server_name: rr::Name,
+    entry: rr::Name,
+    expected: Rc<RecordSet>,
+) -> impl Future<Item = (), Error = failure::Error> {
+    poll_entries(
+        server,
+        server_name,
+        entry,
+        expected.to_record_types().as_slice(),
+        move |server, records| {
+            let matched = expected.satisfied_by(records);
+            if !matched {
+                println!(
+                    "{}: records not matching: expected {}, found {}",
+                    server,
+                    expected,
+                    ShowRecordData(records),
+                );
+            } else {
+                println!("{}: match found", server);
+            }
+            matched
+        },
+    )
+}
+
 fn main() {
     let opt = Opt::from_args();
     let mut runtime = Runtime::new().unwrap();
@@ -305,35 +340,43 @@ fn main() {
     let handle = runtime.handle();
     let entry = opt.entry.append_name(&name);
     let timeout = opt.timeout.unwrap_or(5);
+    let exclude = opt.exclude;
 
     let get_authorative = get_ns_records(recursor.clone(), name).map_err(failure::Error::from);
-    let expected = RecordSet::from_iter(opt.expected);
+    let expected = Rc::new(RecordSet::from_iter(opt.expected));
     let client = get_authorative
         .and_then(move |authorative| {
-            future::join_all(authorative.into_iter().map(move |record| {
-                let expected = expected.clone();
-                poll_entries(
-                    handle.clone(),
-                    recursor.clone(),
-                    record.rdata().as_ns().unwrap().clone(),
-                    entry.clone(),
-                    expected.to_record_types().as_slice(),
-                    move |server, records| {
-                        let matched = expected.satisfied_by(records);
-                        if !matched {
-                            println!(
-                                "{}: records not matching: expected {}, found {}",
-                                server,
-                                expected,
-                                ShowRecordData(records),
-                            );
-                        } else {
-                            println!("{}: match found", server);
-                        }
-                        matched
-                    },
-                )
-            }))
+            future::join_all(
+                authorative
+                    .into_iter()
+                    .filter_map(|r| r.rdata().as_ns().cloned())
+                    .map(move |server_name| {
+                        let handle = handle.clone();
+                        let server_name = server_name.clone();
+                        let resolve = resolve_authorative(recursor.clone(), server_name.clone())
+                            .map(move |addr| if Some(addr) == exclude {
+                                None
+                            } else {
+                                Some(connect_authorative(handle.clone(), addr))
+                            });
+                        let server_name = server_name.clone();
+                        let entry = entry.clone();
+                        let expected = Rc::clone(&expected);
+                        resolve.and_then(move |maybe_server| {
+                            match maybe_server {
+                                None => Either::A(future::ok(())),
+                                Some(server) => {
+                                    Either::B(poll_server(
+                                        server.clone(),
+                                        server_name,
+                                        entry,
+                                        expected,
+                                    ))
+                                }
+                            }
+                        })
+                    }),
+            )
         })
         .timeout(Duration::from_secs(timeout))
         .map_err(|e| {
