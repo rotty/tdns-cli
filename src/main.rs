@@ -3,13 +3,13 @@ use std::{
     time::{Duration, Instant},
 };
 
-use structopt::StructOpt;
 use failure::format_err;
 use futures::{
     future::{self, Either},
     Future,
 };
-use tokio::{runtime::current_thread::Runtime, timer::Delay};
+use structopt::StructOpt;
+use tokio::{prelude::*, runtime::current_thread::Runtime, timer::Delay};
 use tokio_udp::UdpSocket;
 use trust_dns::{
     client::{ClientFuture, ClientHandle},
@@ -113,6 +113,8 @@ where
 struct Opt {
     #[structopt(long = "recursor")]
     recursor: SocketAddr,
+    #[structopt(long = "timeout")]
+    timeout: Option<u64>,
     domain: rr::Name,
     entry: rr::Name,
     text: String,
@@ -125,11 +127,10 @@ fn main() {
     let name = opt.domain;
     let handle = runtime.handle();
     let entry = opt.entry;
+    let timeout = opt.timeout.unwrap_or(5);
 
     let get_authorative = get_ns_records(recursor.clone(), name).map_err(failure::Error::from);
-    let expected = vec![rr::RData::TXT(rr::rdata::txt::TXT::new(vec![
-        opt.text
-    ]))];
+    let expected = vec![rr::RData::TXT(rr::rdata::txt::TXT::new(vec![opt.text]))];
     let client = get_authorative
         .and_then(move |authorative| {
             future::join_all(authorative.into_iter().map(move |record| {
@@ -148,6 +149,18 @@ fn main() {
                 )
             }))
         })
-        .map_err(|e| eprintln!("error: {}", e));
-    runtime.block_on(client).unwrap();
+        .timeout(Duration::from_secs(timeout))
+        .map_err(|e| {
+            e.into_inner().unwrap_or_else(|| {
+                format_err!("timeout; update not complete within {} seconds", timeout)
+            })
+        });
+    let rc = match runtime.block_on(client) {
+        Ok(_) => 0,
+        Err(e) => {
+            eprintln!("error: {}", e);
+            1
+        }
+    };
+    std::process::exit(rc);
 }
