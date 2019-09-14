@@ -3,6 +3,7 @@ use std::{
     time::{Duration, Instant},
 };
 
+use structopt::StructOpt;
 use failure::format_err;
 use futures::{
     future::{self, Either},
@@ -108,35 +109,41 @@ where
     poller
 }
 
+#[derive(StructOpt)]
+struct Opt {
+    #[structopt(long = "recursor")]
+    recursor: SocketAddr,
+    domain: rr::Name,
+    entry: rr::Name,
+    text: String,
+}
+
 fn main() {
-    let address = "8.8.8.8:53".parse().unwrap();
+    let opt = Opt::from_args();
     let mut runtime = Runtime::new().unwrap();
-    let recursor = open_recursor(runtime.handle(), address);
-    let name = "r0tty.org.".parse().unwrap();
+    let recursor = open_recursor(runtime.handle(), opt.recursor);
+    let name = opt.domain;
     let handle = runtime.handle();
+    let entry = opt.entry;
 
     let get_authorative = get_ns_records(recursor.clone(), name).map_err(failure::Error::from);
+    let expected = vec![rr::RData::TXT(rr::rdata::txt::TXT::new(vec![
+        opt.text
+    ]))];
     let client = get_authorative
         .and_then(move |authorative| {
             future::join_all(authorative.into_iter().map(move |record| {
+                let expected = expected.clone();
                 poll_entry(
                     handle.clone(),
                     recursor.clone(),
                     record.rdata().as_ns().unwrap().clone(),
-                    "ns1.r0tty.org.".parse().unwrap(),
+                    entry.clone(),
                     RecordType::A,
-                    |server, records| {
-                        let rdata: Vec<_> = records.iter().map(Record::rdata).collect();
+                    move |server, records| {
+                        let rdata = records.iter().map(Record::rdata);
                         println!("got records from {:?} {:?}", server, records);
-                        if rdata.as_slice()
-                            == &[&rr::RData::TXT(rr::rdata::txt::TXT::new(vec![
-                                "foobar".into()
-                            ]))]
-                        {
-                            true
-                        } else {
-                            false
-                        }
+                        rdata.eq(expected.iter())
                     },
                 )
             }))
