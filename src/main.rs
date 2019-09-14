@@ -141,6 +141,8 @@ struct Opt {
     expected: Vec<Data>,
     #[structopt(long = "exclude")]
     exclude: Option<IpAddr>,
+    #[structopt(long = "verbose", short = "v")]
+    verbose: bool,
 }
 
 #[derive(Debug, Clone, Eq, PartialEq)]
@@ -309,6 +311,7 @@ fn poll_server(
     server_name: rr::Name,
     entry: rr::Name,
     expected: Rc<RecordSet>,
+    verbose: bool,
 ) -> impl Future<Item = (), Error = failure::Error> {
     poll_entries(
         server,
@@ -317,15 +320,17 @@ fn poll_server(
         expected.to_record_types().as_slice(),
         move |server, records| {
             let matched = expected.satisfied_by(records);
-            if !matched {
-                println!(
-                    "{}: records not matching: expected {}, found {}",
-                    server,
-                    expected,
-                    ShowRecordData(records),
-                );
-            } else {
-                println!("{}: match found", server);
+            if verbose {
+                if !matched {
+                    println!(
+                        "{}: records not matching: expected {}, found {}",
+                        server,
+                        expected,
+                        ShowRecordData(records),
+                    );
+                } else {
+                    println!("{}: match found", server);
+                }
             }
             matched
         },
@@ -344,6 +349,7 @@ fn main() {
 
     let get_authorative = get_ns_records(recursor.clone(), name).map_err(failure::Error::from);
     let expected = Rc::new(RecordSet::from_iter(opt.expected));
+    let verbose = opt.verbose;
     let client = get_authorative
         .and_then(move |authorative| {
             future::join_all(
@@ -371,6 +377,7 @@ fn main() {
                                         server_name,
                                         entry,
                                         expected,
+                                        verbose,
                                     ))
                                 }
                             }
