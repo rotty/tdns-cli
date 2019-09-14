@@ -20,7 +20,10 @@ use tokio_udp::UdpSocket;
 use trust_dns::{
     client::{ClientFuture, ClientHandle},
     op::DnsResponse,
-    proto::xfer::dns_handle::DnsHandle,
+    proto::{
+        op::{query::Query, message::Message},
+        xfer::{dns_handle::DnsHandle, dns_request::DnsRequest},
+    },
     rr::{self, DNSClass, Record, RecordType},
     udp::UdpClientStream,
 };
@@ -64,12 +67,12 @@ where
     query
 }
 
-fn poll_entry<F>(
+fn poll_entries<F>(
     runtime: RuntimeHandle,
     recursor: impl DnsHandle,
     server_name: rr::Name,
     name: rr::Name,
-    record_type: RecordType,
+    record_types: &[RecordType],
     done: F,
 ) -> impl Future<Item = (), Error = failure::Error>
 where
@@ -91,12 +94,14 @@ where
             Ok(client)
         });
 
+    let mut message = Message::new();
+    message.add_queries(record_types.iter().map(|rtype| Query::query(name.clone(), *rtype)));
     use future::Loop;
     let poller = resolve.and_then(move |mut client| {
         future::loop_fn(done, move |done| {
             let server_name = server_name.clone();
             client
-                .query(name.clone(), DNSClass::IN, record_type)
+                .send(DnsRequest::new(message.clone(), Default::default()))
                 .map_err(failure::Error::from)
                 .and_then(move |response: DnsResponse| {
                     if done(&server_name, response.answers()) {
@@ -130,6 +135,10 @@ struct Opt {
 struct RecordSet(BTreeSet<Data>);
 
 impl RecordSet {
+    fn to_record_types(&self) -> Vec<RecordType> {
+        self.0.iter().map(Data::to_record_type).collect()
+    }
+
     fn satisfied_by(&self, rrs: &[rr::Record]) -> bool {
         rrs.iter()
             .map(|rr| Data::try_from(rr.rdata()))
@@ -170,6 +179,14 @@ enum Data {
     Txt(String),
 }
 
+impl Data {
+    fn to_record_type(&self) -> RecordType {
+        match self {
+            Data::Txt(_) => RecordType::TXT,
+        }
+    }
+}
+
 impl TryFrom<&rr::RData> for Data {
     type Error = TryFromRDataError;
 
@@ -196,10 +213,12 @@ enum TryFromRDataError {
 impl fmt::Display for Data {
     fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
         match self {
-            Data::Txt(content) => if content.chars().any(char::is_whitespace) {
-                write!(f, "TXT:'{}'", content)
-            } else {
-                write!(f, "TXT:{}", content)
+            Data::Txt(content) => {
+                if content.chars().any(char::is_whitespace) {
+                    write!(f, "TXT:'{}'", content)
+                } else {
+                    write!(f, "TXT:{}", content)
+                }
             }
         }
     }
@@ -276,12 +295,12 @@ fn main() {
         .and_then(move |authorative| {
             future::join_all(authorative.into_iter().map(move |record| {
                 let expected = expected.clone();
-                poll_entry(
+                poll_entries(
                     handle.clone(),
                     recursor.clone(),
                     record.rdata().as_ns().unwrap().clone(),
                     entry.clone(),
-                    RecordType::TXT, // TODO: more types
+                    expected.to_record_types().as_slice(),
                     move |server, records| {
                         let matched = expected.satisfied_by(records);
                         if !matched {
