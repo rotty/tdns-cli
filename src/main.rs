@@ -366,28 +366,26 @@ fn main() {
                         let handle = handle.clone();
                         let server_name = server_name.clone();
                         let resolve = resolve_authorative(recursor.clone(), server_name.clone())
-                            .map(move |addr| if Some(addr) == exclude {
-                                None
-                            } else {
-                                Some(connect_authorative(handle.clone(), addr))
+                            .map(move |addr| {
+                                if Some(addr) == exclude {
+                                    None
+                                } else {
+                                    Some(connect_authorative(handle.clone(), addr))
+                                }
                             });
                         let server_name = server_name.clone();
                         let entry = entry.clone();
                         let expected = Rc::clone(&expected);
-                        resolve.and_then(move |maybe_server| {
-                            match maybe_server {
-                                None => Either::A(future::ok(())),
-                                Some(server) => {
-                                    Either::B(poll_server(
-                                        server.clone(),
-                                        server_name,
-                                        entry,
-                                        expected,
-                                        Duration::from_secs(interval.unwrap_or(1)),
-                                        verbose,
-                                    ))
-                                }
-                            }
+                        resolve.and_then(move |maybe_server| match maybe_server {
+                            None => Either::A(future::ok(())),
+                            Some(server) => Either::B(poll_server(
+                                server.clone(),
+                                server_name,
+                                entry,
+                                expected,
+                                Duration::from_secs(interval.unwrap_or(1)),
+                                verbose,
+                            )),
                         })
                     }),
             )
