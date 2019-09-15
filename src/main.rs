@@ -97,6 +97,7 @@ fn poll_entries<F>(
     server_name: rr::Name,
     name: rr::Name,
     record_types: &[RecordType],
+    interval: Duration,
     done: F,
 ) -> impl Future<Item = (), Error = failure::Error>
 where
@@ -118,7 +119,7 @@ where
                 if done(&server_name, response.answers()) {
                     Either::A(future::ok(Loop::Break(())))
                 } else {
-                    let when = Instant::now() + Duration::from_millis(500);
+                    let when = Instant::now() + interval;
                     Either::B(
                         Delay::new(when)
                             .map_err(failure::Error::from)
@@ -143,6 +144,8 @@ struct Opt {
     exclude: Option<IpAddr>,
     #[structopt(long = "verbose", short = "v")]
     verbose: bool,
+    #[structopt(long = "interval")]
+    interval: Option<u64>,
 }
 
 #[derive(Debug, Clone, Eq, PartialEq)]
@@ -311,6 +314,7 @@ fn poll_server(
     server_name: rr::Name,
     entry: rr::Name,
     expected: Rc<RecordSet>,
+    interval: Duration,
     verbose: bool,
 ) -> impl Future<Item = (), Error = failure::Error> {
     poll_entries(
@@ -318,6 +322,7 @@ fn poll_server(
         server_name,
         entry,
         expected.to_record_types().as_slice(),
+        interval,
         move |server, records| {
             let matched = expected.satisfied_by(records);
             if verbose {
@@ -346,6 +351,7 @@ fn main() {
     let entry = opt.entry.append_name(&name);
     let timeout = opt.timeout.unwrap_or(5);
     let exclude = opt.exclude;
+    let interval = opt.interval;
 
     let get_authorative = get_ns_records(recursor.clone(), name).map_err(failure::Error::from);
     let expected = Rc::new(RecordSet::from_iter(opt.expected));
@@ -377,6 +383,7 @@ fn main() {
                                         server_name,
                                         entry,
                                         expected,
+                                        Duration::from_secs(interval.unwrap_or(1)),
                                         verbose,
                                     ))
                                 }
