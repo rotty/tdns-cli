@@ -43,13 +43,13 @@ cargo run -- --help
 
 # Example use case
 
-This is the scenario which prompted the development of `pdns-update`.
+This is the scenario which prompted the development of `tdns-update`.
 
 When obtaining TLS certificates from letsencrypt using the [DNS-01
 protocol], it is necessary to ensure that letsencrypt is only told to
 verify the challenge after it can be reliably retrieved. With
 secondary DNS servers, it can take a while until the update is
-completely rolled out to all of them. `pdns-update` can be used as
+completely rolled out to all of them. `tdns-update` can be used as
 part of the hook script to deploy the letsencrypt challenge to DNS.
 
 [Rust toolchain]: https://www.rust-lang.org/tools/install
