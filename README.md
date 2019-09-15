@@ -19,7 +19,7 @@ and hasn't even been deployed by its author. The usual caveats apply.
 Without those, `tdns-update` cannot function reliably, or can be
 considered not doing the job properly:
 
-- [ ] DNS query retries.
+- [X] DNS query retries.
 - [ ] Probe all addresses an `NS` entry resolves to.
 - [ ] IPv6 support.
 

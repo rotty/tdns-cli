@@ -20,17 +20,16 @@ use structopt::StructOpt;
 use tokio::{prelude::*, runtime::current_thread::Runtime, timer::Delay};
 use tokio_udp::UdpSocket;
 use trust_dns::{
-    client::{ClientFuture, ClientHandle},
+    client::{ClientFuture},
     op::DnsResponse,
     proto::{
         op::{message::Message, query::Query},
         xfer::{dns_handle::DnsHandle, dns_request::DnsRequest},
     },
-    rr::{self, DNSClass, Record, RecordType},
+    rr::{self, Record, RecordType},
     udp::UdpClientStream,
 };
 
-type DnsError = trust_dns::error::ClientError;
 type RuntimeHandle = tokio::runtime::current_thread::Handle;
 
 fn open_recursor(runtime: RuntimeHandle, address: SocketAddr) -> impl DnsHandle {
@@ -40,33 +39,50 @@ fn open_recursor(runtime: RuntimeHandle, address: SocketAddr) -> impl DnsHandle 
     client
 }
 
-fn query_ip_addr(
+fn dns_query(
     mut recursor: impl DnsHandle,
-    name: &rr::Name,
-) -> impl Future<Item = Vec<IpAddr>, Error = DnsError> {
-    // FIXME: IPv6
-    recursor
-        .query(name.clone(), DNSClass::IN, RecordType::A)
-        .map(|response| {
-            response
-                .answers()
-                .iter()
-                .filter_map(|r| r.rdata().to_ip_addr())
-                .collect()
+    query: Query,
+) -> impl Future<Item = DnsResponse, Error = failure::Error> {
+    use future::Loop;
+    const MAX_TRIES: usize = 3;
+    future::loop_fn(0, move |count| {
+        let run_query = recursor.lookup(query.clone(), Default::default());
+        let name = query.name().clone();
+        run_query.then(move |result| match result {
+            Ok(addrs) => future::ok(Loop::Break(addrs)),
+            Err(_) if count < MAX_TRIES => future::ok(Loop::Continue(count + 1)),
+            Err(e) => future::err(format_err!(
+                "could not resolve server name '{}' (max retries reached): {}",
+                name,
+                e
+            )),
         })
+    })
+}
+
+fn query_ip_addr(
+    recursor: impl DnsHandle,
+    name: rr::Name,
+) -> impl Future<Item = Vec<IpAddr>, Error = failure::Error> + 'static {
+    // FIXME: IPv6
+    dns_query(recursor, Query::query(name, RecordType::A)).map(|response| {
+        response
+            .answers()
+            .iter()
+            .filter_map(|r| r.rdata().to_ip_addr())
+            .collect()
+    })
 }
 
 fn get_ns_records<R>(
-    mut recursor: R,
+    recursor: R,
     domain: rr::Name,
-) -> impl Future<Item = Vec<Record>, Error = DnsError>
+) -> impl Future<Item = Vec<Record>, Error = failure::Error>
 where
     R: DnsHandle,
 {
-    let query = recursor
-        .query(domain, DNSClass::IN, RecordType::NS)
-        .map(|response| response.answers().to_vec());
-    query
+    dns_query(recursor, Query::query(domain, RecordType::NS))
+        .map(|response| response.answers().to_vec())
 }
 
 fn connect_authorative(runtime: RuntimeHandle, addr: IpAddr) -> impl DnsHandle {
@@ -80,16 +96,17 @@ fn resolve_authorative(
     recursor: impl DnsHandle,
     server_name: rr::Name,
 ) -> impl Future<Item = IpAddr, Error = failure::Error> {
-    let server_name_err = server_name.clone();
-    query_ip_addr(recursor, &server_name)
-        .map_err(failure::Error::from)
-        .and_then(move |addrs| {
-            let client = addrs
-                .first()
-                .cloned()
-                .ok_or_else(|| format_err!("could not resolve server name: {}", server_name_err))?;
-            Ok(client)
-        })
+    query_ip_addr(recursor.clone(), server_name.clone()).and_then(move |addrs| {
+        // TODO: handle multiple addresses
+        if let Some(addr) = addrs.first().cloned() {
+            Ok(addr)
+        } else {
+            Err(format_err!(
+                "could not resolve server '{}': no addresses found",
+                server_name
+            ))
+        }
+    })
 }
 
 fn poll_entries<F>(
@@ -349,7 +366,7 @@ fn main() {
     let name = opt.domain;
     let handle = runtime.handle();
     let entry = opt.entry.append_name(&name);
-    let timeout = opt.timeout.unwrap_or(5);
+    let timeout = opt.timeout.unwrap_or(60);
     let exclude = opt.exclude;
     let interval = opt.interval;
 
