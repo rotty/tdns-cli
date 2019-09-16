@@ -1,9 +1,18 @@
 [package]
 name = "tdns-update"
 description = "Dynamic DNS updater"
+categories = ["command-line-utilities", "network-programming"]
+keywords = ["dns", "update", "dynamic", "nsupdate"]
+repository = "https://github.com/rotty/tdns-update"
+homepage = "https://github.com/rotty/tdns-update"
+readme = "README.md"
 version = "0.0.1"
 authors = ["Andreas Rottmann <a.rottmann@gmx.at>"]
+license = "GPL-3.0-or-later"
 edition = "2018"
+
+[badges]
+maintenance = { status = "actively-developed" }
 
 [dependencies]
 trust-dns = "0.17.0"
