@@ -9,7 +9,8 @@ that entry reach a specified expected state.
 
 After initiating a dynamic DNS update request, if you need to know
 when the update has propagated to all authoritative nameservers for
-the affected zone, this `tdns-update` can do that job for you.
+the affected zone, this is exactly the job `tdns-update` can do for
+you.
 
 `tdns-update` is implemented in Rust, taking advantage of the terrific
 [`trust-dns`] DNS client library, and uses a single-threaded,
