@@ -148,19 +148,29 @@ where
     poller
 }
 
+/// Wait for a DNS entry to obtain a specified state.
 #[derive(StructOpt)]
 struct Opt {
+    /// Specify the recusor to use, including the port number.
     #[structopt(long = "recursor")]
     recursor: SocketAddr,
+    /// Timeout in seconds for how long to wait in total for a successful
+    /// update.
     #[structopt(long = "timeout")]
     timeout: Option<u64>,
+    /// Domain to monitor.
     domain: rr::Name,
+    /// Entry to monitor.
     entry: rr::Name,
+    /// Expected query response.
     expected: Vec<Data>,
+    /// Excluded IP address.
     #[structopt(long = "exclude")]
     exclude: Option<IpAddr>,
+    /// Show informational messages during execution.
     #[structopt(long = "verbose", short = "v")]
     verbose: bool,
+    /// The number of seconds to wait between checking.
     #[structopt(long = "interval")]
     interval: Option<u64>,
 }
