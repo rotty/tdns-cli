@@ -11,6 +11,13 @@ After initiating a dynamic DNS update request, if you need to know
 when the update has propagated to all authoritative nameservers for
 the affected zone, this `tdns-update` can do that job for you.
 
+`tdns-update` is implemented in Rust, taking advantage of the terrific
+[`trust-dns`] DNS client library, and uses a single-threaded,
+non-blocking runtime. Translated from developer speak, this means that
+`tdns-udpate` should be very light on system resources, and cope well
+even with unreasonably large tasks, such as monitoring a record in a
+zone that is served by hundreds of authoritative nameservers.
+
 Note that `tdns-update` is currently in its initial development phase,
 and hasn't even been deployed by its author. The usual caveats apply.
 
@@ -39,6 +46,29 @@ You can run it directly from the source checkout:
 
 ```sh
 cargo run -- --help
+```
+
+To install from locally checked-out source, use `cargo install --path
+.`, which will end up installing the executable in
+`~/.cargo/bin/tdns-update`, which should already be in your `PATH`
+environment variable, if you followed the Rust toolchain installations
+instructions.
+
+### Static build
+
+For deployment to a Linux target, an attractive option is to create a
+statically linked binary using Rust's MUSL target. This will result in
+a completely standalone binary, which depends only on the Linux
+kernel's system call ABI.
+
+```sh
+# If you haven't installed the MUSL target already, let's do that now:
+rustup target add x86_64-unknown-linux-musl
+# Build against the MUSL libc target
+cargo build --target x86_64-unknown-linux-musl --release
+# Let's check it's really a static binary
+file target/x86_64-unknown-linux-musl/release/tdns-update \
+  | grep -q 'statically linked' || echo "nope"
 ```
 
 # Example use case
