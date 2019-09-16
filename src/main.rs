@@ -1,7 +1,7 @@
 use std::{
     collections::BTreeSet,
     convert::TryFrom,
-    fmt,
+    fmt, fs,
     iter::FromIterator,
     net::{self, IpAddr, SocketAddr},
     net::{Ipv4Addr, Ipv6Addr},
@@ -20,7 +20,7 @@ use structopt::StructOpt;
 use tokio::{prelude::*, runtime::current_thread::Runtime, timer::Delay};
 use tokio_udp::UdpSocket;
 use trust_dns::{
-    client::{ClientFuture},
+    client::ClientFuture,
     op::DnsResponse,
     proto::{
         op::{message::Message, query::Query},
@@ -152,8 +152,11 @@ where
 #[derive(StructOpt)]
 struct Opt {
     /// Specify the recusor to use, including the port number.
+    ///
+    /// If not specified, the first nameserver specified in `/etc/resolv.conf`
+    /// is used.
     #[structopt(long = "recursor")]
-    recursor: SocketAddr,
+    recursor: Option<SocketAddr>,
     /// Timeout in seconds for how long to wait in total for a successful
     /// update.
     #[structopt(long = "timeout")]
@@ -369,10 +372,23 @@ fn poll_server(
     )
 }
 
-fn main() {
-    let opt = Opt::from_args();
+fn get_system_resolver() -> Option<SocketAddr> {
+    use resolv_conf::{Config, ScopedIp};
+    let resolv_conf = fs::read("/etc/resolv.conf").ok()?;
+    let config = Config::parse(&resolv_conf).ok()?;
+    config.nameservers.iter().find_map(|scoped| match scoped {
+        ScopedIp::V4(v4) => Some(SocketAddr::new(v4.clone().into(), 53)),
+        ScopedIp::V6(_, _) => None, // TODO: IPv6 support
+    })
+}
+
+fn run(opt: Opt) -> Result<(), failure::Error> {
     let mut runtime = Runtime::new().unwrap();
-    let recursor = open_recursor(runtime.handle(), opt.recursor);
+    let recursor_addr = opt
+        .recursor
+        .or_else(|| get_system_resolver())
+        .ok_or_else(|| format_err!("could not obtain resolver address from operating system"))?;
+    let recursor = open_recursor(runtime.handle(), recursor_addr);
     let name = opt.domain;
     let handle = runtime.handle();
     let entry = opt.entry.append_name(&name);
@@ -423,7 +439,12 @@ fn main() {
                 format_err!("timeout; update not complete within {} seconds", timeout)
             })
         });
-    let rc = match runtime.block_on(client) {
+    runtime.block_on(client).map(|_| ())
+}
+
+fn main() {
+    let opt = Opt::from_args();
+    let rc = match run(opt) {
         Ok(_) => 0,
         Err(e) => {
             eprintln!("error: {}", e);

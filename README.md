@@ -28,6 +28,8 @@ Without those, `tdns-update` cannot function reliably, or can be
 considered not doing the job properly:
 
 - [X] DNS query retries.
+- [X] Use system resolver by default. This currently only works on
+      systems that have `/etc/resolv.conf`.
 - [ ] Probe all addresses an `NS` entry resolves to.
 - [ ] IPv6 support.
 
