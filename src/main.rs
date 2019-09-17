@@ -155,11 +155,11 @@ struct Opt {
     ///
     /// If not specified, the first nameserver specified in `/etc/resolv.conf`
     /// is used.
-    #[structopt(long = "recursor")]
-    recursor: Option<SocketAddr>,
+    #[structopt(long)]
+    resolver: Option<SocketAddr>,
     /// Timeout in seconds for how long to wait in total for a successful
     /// update.
-    #[structopt(long = "timeout")]
+    #[structopt(long)]
     timeout: Option<u64>,
     /// Domain to monitor.
     domain: rr::Name,
@@ -168,14 +168,15 @@ struct Opt {
     /// Expected query response.
     expected: Vec<Data>,
     /// Excluded IP address.
-    #[structopt(long = "exclude")]
+    #[structopt(long)]
     exclude: Option<IpAddr>,
     /// Show informational messages during execution.
-    #[structopt(long = "verbose", short = "v")]
+    #[structopt(long, short)]
     verbose: bool,
     /// The number of seconds to wait between checking.
-    #[structopt(long = "interval")]
+    #[structopt(long)]
     interval: Option<u64>,
+    #[structopt(long)]
 }
 
 #[derive(Debug, Clone, Eq, PartialEq)]
@@ -385,7 +386,7 @@ fn get_system_resolver() -> Option<SocketAddr> {
 fn run(opt: Opt) -> Result<(), failure::Error> {
     let mut runtime = Runtime::new().unwrap();
     let recursor_addr = opt
-        .recursor
+        .resolver
         .or_else(|| get_system_resolver())
         .ok_or_else(|| format_err!("could not obtain resolver address from operating system"))?;
     let recursor = open_recursor(runtime.handle(), recursor_addr);
