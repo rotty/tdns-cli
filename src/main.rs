@@ -20,11 +20,11 @@ use structopt::StructOpt;
 use tokio::{prelude::*, runtime::current_thread::Runtime, timer::Delay};
 use tokio_udp::UdpSocket;
 use trust_dns::{
-    client::ClientFuture,
+    client::{ClientHandle, ClientFuture},
     op::DnsResponse,
     proto::{
         op::{message::Message, query::Query},
-        xfer::{dns_handle::DnsHandle, dns_request::DnsRequest},
+        xfer::{dns_request::DnsRequest},
     },
     rr::{self, Record, RecordType},
     udp::UdpClientStream,
@@ -32,7 +32,7 @@ use trust_dns::{
 
 type RuntimeHandle = tokio::runtime::current_thread::Handle;
 
-fn open_recursor(runtime: RuntimeHandle, address: SocketAddr) -> impl DnsHandle {
+fn open_recursor(runtime: RuntimeHandle, address: SocketAddr) -> impl ClientHandle {
     let stream = UdpClientStream::<UdpSocket>::new(address);
     let (bg, client) = ClientFuture::connect(stream);
     runtime.spawn(bg).unwrap();
@@ -40,7 +40,7 @@ fn open_recursor(runtime: RuntimeHandle, address: SocketAddr) -> impl DnsHandle 
 }
 
 fn dns_query(
-    mut recursor: impl DnsHandle,
+    mut recursor: impl ClientHandle,
     query: Query,
 ) -> impl Future<Item = DnsResponse, Error = failure::Error> {
     use future::Loop;
@@ -61,7 +61,7 @@ fn dns_query(
 }
 
 fn query_ip_addr(
-    recursor: impl DnsHandle,
+    recursor: impl ClientHandle,
     name: rr::Name,
 ) -> impl Future<Item = Vec<IpAddr>, Error = failure::Error> + 'static {
     // FIXME: IPv6
@@ -79,13 +79,13 @@ fn get_ns_records<R>(
     domain: rr::Name,
 ) -> impl Future<Item = Vec<Record>, Error = failure::Error>
 where
-    R: DnsHandle,
+    R: ClientHandle,
 {
     dns_query(recursor, Query::query(domain, RecordType::NS))
         .map(|response| response.answers().to_vec())
 }
 
-fn connect_authorative(runtime: RuntimeHandle, addr: IpAddr) -> impl DnsHandle {
+fn connect_authorative(runtime: RuntimeHandle, addr: IpAddr) -> impl ClientHandle {
     let stream = UdpClientStream::<UdpSocket>::new(SocketAddr::new(addr, 53));
     let (bg, client) = ClientFuture::connect(stream);
     runtime.spawn(bg).unwrap();
@@ -93,7 +93,7 @@ fn connect_authorative(runtime: RuntimeHandle, addr: IpAddr) -> impl DnsHandle {
 }
 
 fn resolve_authorative(
-    recursor: impl DnsHandle,
+    recursor: impl ClientHandle,
     server_name: rr::Name,
 ) -> impl Future<Item = IpAddr, Error = failure::Error> {
     query_ip_addr(recursor.clone(), server_name.clone()).and_then(move |addrs| {
@@ -110,7 +110,7 @@ fn resolve_authorative(
 }
 
 fn poll_entries<F>(
-    mut server: impl DnsHandle,
+    mut server: impl ClientHandle,
     server_name: rr::Name,
     name: rr::Name,
     record_types: &[RecordType],
@@ -340,7 +340,7 @@ impl<'a> fmt::Display for ShowRecordData<'a> {
 }
 
 fn poll_server(
-    server: impl DnsHandle,
+    server: impl ClientHandle,
     server_name: rr::Name,
     entry: rr::Name,
     expected: Rc<RecordSet>,
