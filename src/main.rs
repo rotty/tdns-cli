@@ -176,7 +176,6 @@ struct Opt {
     /// The number of seconds to wait between checking.
     #[structopt(long)]
     interval: Option<u64>,
-    #[structopt(long)]
 }
 
 #[derive(Debug, Clone, Eq, PartialEq)]
