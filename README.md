@@ -31,11 +31,11 @@ considered not doing the job properly:
 - [X] Use system resolver by default. This currently only works on
       systems that have `/etc/resolv.conf`.
 - [ ] Probe all addresses an `NS` entry resolves to.
-- [ ] IPv6 support.
+- [ ] IPv6 support; this should be working, but as of yet untested.
 
 # Planned features
 
-- [ ] TCP support -- currently, only UDP-based DNS is supported.
+- [X] TCP support -- currently, only UDP-based DNS is supported.
 - [ ] DNS Update functionality. Since [`trust-dns`], the DNS client
       library used by `tdns-update` implements this mechanism,
       including update functionality should be not too hard to add.
