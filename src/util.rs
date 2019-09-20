@@ -1,4 +1,8 @@
-use std::{convert::TryFrom, fmt, net::IpAddr};
+use std::{
+    convert::TryFrom,
+    fmt, fs,
+    net::{IpAddr, SocketAddr},
+};
 
 use failure::format_err;
 use futures::{future, Future};
@@ -10,6 +14,16 @@ use trust_dns::{
 };
 
 use crate::record::{self, TryFromRDataError};
+
+pub fn get_system_resolver() -> Option<SocketAddr> {
+    use resolv_conf::{Config, ScopedIp};
+    let resolv_conf = fs::read("/etc/resolv.conf").ok()?;
+    let config = Config::parse(&resolv_conf).ok()?;
+    config.nameservers.iter().find_map(|scoped| match scoped {
+        ScopedIp::V4(v4) => Some(SocketAddr::new(v4.clone().into(), 53)),
+        ScopedIp::V6(_, _) => None, // TODO: IPv6 support
+    })
+}
 
 pub struct ShowRecordData<'a>(pub &'a [Record]);
 

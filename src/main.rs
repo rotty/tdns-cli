@@ -1,6 +1,5 @@
 use std::{
     convert::TryFrom,
-    fs,
     iter::FromIterator,
     net::{IpAddr, SocketAddr},
     rc::Rc,
@@ -65,16 +64,6 @@ struct Opt {
     tcp: bool,
 }
 
-fn get_system_resolver() -> Option<SocketAddr> {
-    use resolv_conf::{Config, ScopedIp};
-    let resolv_conf = fs::read("/etc/resolv.conf").ok()?;
-    let config = Config::parse(&resolv_conf).ok()?;
-    config.nameservers.iter().find_map(|scoped| match scoped {
-        ScopedIp::V4(v4) => Some(SocketAddr::new(v4.clone().into(), 53)),
-        ScopedIp::V6(_, _) => None, // TODO: IPv6 support
-    })
-}
-
 trait DnsOpen {
     type Client: ClientHandle;
     fn open(runtime: RuntimeHandle, addr: SocketAddr) -> Self::Client;
@@ -114,9 +103,12 @@ impl TryFrom<Opt> for Settings {
     type Error = failure::Error;
 
     fn try_from(opt: Opt) -> Result<Self, Self::Error> {
-        let resolver = opt.resolver.or_else(get_system_resolver).ok_or_else(|| {
-            format_err!("could not obtain resolver address from operating system")
-        })?;
+        let resolver = opt
+            .resolver
+            .or_else(util::get_system_resolver)
+            .ok_or_else(|| {
+                format_err!("could not obtain resolver address from operating system")
+            })?;
         let entry = opt.entry.append_name(&opt.domain);
         Ok(Settings {
             resolver,
