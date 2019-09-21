@@ -3,7 +3,7 @@ use std::{
     convert::TryFrom,
     fmt,
     net::{self, Ipv4Addr, Ipv6Addr},
-    str::FromStr,
+    str::{self, FromStr},
     string::FromUtf8Error,
 };
 
@@ -223,8 +223,14 @@ impl TryFrom<&[rr::Record]> for RecordSet {
     type Error = TryFromRecordsError;
 
     fn try_from(rrs: &[rr::Record]) -> Result<Self, Self::Error> {
-        fn txt_string(_txt: &rdata::TXT) -> Result<String, TryFromRecordsError> {
-            Err(TryFromRecordsError::UnsupportedType(rr::RecordType::TXT))
+        fn txt_string(txt: &rdata::TXT) -> Result<String, TryFromRecordsError> {
+            let data = txt.txt_data();
+            if data.len() != 1 {
+                return Err(TryFromRecordsError::UnsupportedTxtValue);
+            }
+            str::from_utf8(&data[0])
+                .map(Into::into)
+                .map_err(TryFromRecordsError::Utf8)
         }
         let keys: BTreeSet<RsKey> = rrs.iter().map(Into::into).collect();
         match keys.len() {
@@ -269,7 +275,9 @@ pub enum TryFromRecordsError {
     Empty,
     MultipleKeys(BTreeSet<RsKey>),
     UnsupportedType(rr::RecordType),
+    UnsupportedTxtValue,
     FromUtf8(FromUtf8Error),
+    Utf8(str::Utf8Error),
 }
 
 impl fmt::Display for TryFromRecordsError {
@@ -279,6 +287,8 @@ impl fmt::Display for TryFromRecordsError {
             Empty => write!(f, "no records"),
             MultipleKeys(_) => write!(f, "multiple keys"),
             UnsupportedType(rtype) => write!(f, "unsupported record type {}", rtype),
+            UnsupportedTxtValue => write!(f, "unsupported TXT value"),
+            Utf8(e) => write!(f, "non-UTF8 content: {}", e),
             FromUtf8(e) => write!(f, "non-UTF8 content: {}", e),
         }
     }

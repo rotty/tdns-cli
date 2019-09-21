@@ -24,7 +24,7 @@ use trust_dns::{
 
 use tdns_update::{
     record::{RecordSet, RsData},
-    update::{poll_server, Settings},
+    update::{poll_server, Mode, Settings},
     util,
 };
 
@@ -52,6 +52,12 @@ struct Opt {
     /// Excluded IP address.
     #[structopt(long)]
     exclude: Option<IpAddr>,
+    /// Do not perform the update.
+    #[structopt(long)]
+    no_op: bool,
+    /// Do not monitor nameservers for the update.
+    #[structopt(long)]
+    no_wait: bool,
     /// Show informational messages during execution.
     #[structopt(long, short)]
     verbose: bool,
@@ -118,13 +124,24 @@ impl TryFrom<Opt> for Settings {
             interval: Duration::from_secs(opt.interval.unwrap_or(1)),
             timeout: Duration::from_secs(opt.timeout.unwrap_or(60)),
             verbose: opt.verbose,
+            mode: match (!opt.no_op, !opt.no_wait) {
+                (true, true) => Mode::UpdateAndMonitor,
+                (true, false) => Mode::Update,
+                (false, true) => Mode::Monitor,
+                (false, false) => {
+                    return Err(format_err!(concat!(
+                        "Both --no-op and --no-wait specified.\n",
+                        "If you really wanted that, why not just use the POSIX `true` utility?"
+                    )))
+                }
+            },
         })
     }
 }
 
 impl<O> App<O>
 where
-    O: DnsOpen,
+    O: DnsOpen + 'static,
 {
     fn new(runtime: RuntimeHandle, settings: Settings) -> Result<Self, failure::Error> {
         let resolver = settings.resolver;
@@ -134,20 +151,83 @@ where
             recursor: O::open(runtime, resolver),
         })
     }
-    fn run(&mut self) -> impl Future<Item = (), Error = failure::Error> {
-        let handle = self.runtime.clone();
-        let settings = Rc::clone(&self.settings);
-        let get_authorative = util::get_ns_records(self.recursor.clone(), settings.domain.clone())
-            .map_err(failure::Error::from);
+
+    fn run(&self) -> AppFuture {
+        let runtime = self.runtime.clone();
         let recursor = self.recursor.clone();
+        let settings = self.settings.clone();
+        match settings.mode {
+            Mode::UpdateAndMonitor => Box::new(
+                Self::perform_update(runtime.clone(), recursor.clone(), settings.clone())
+                    .and_then(|_| Self::wait_for_update(runtime, recursor, settings)),
+            ),
+
+            Mode::Update => Box::new(Self::perform_update(
+                runtime.clone(),
+                recursor.clone(),
+                settings.clone(),
+            )),
+            Mode::Monitor => Box::new(Self::wait_for_update(runtime, recursor, settings)),
+        }
+    }
+
+    fn perform_update(
+        runtime: RuntimeHandle,
+        mut recursor: impl ClientHandle,
+        settings: Rc<Settings>,
+    ) -> impl Future<Item = (), Error = failure::Error> {
+        let get_soa = recursor
+            .query(
+                settings.domain.clone(),
+                rr::DNSClass::IN,
+                rr::RecordType::SOA,
+            )
+            .map_err(failure::Error::from);
+        let get_master = {
+            let settings = settings.clone();
+            get_soa.and_then(move |response| {
+                if let Some(soa) = response
+                    .answers()
+                    .first()
+                    .and_then(|rr| rr.rdata().as_soa())
+                {
+                    Either::A(util::resolve_ip(recursor, soa.mname().clone()))
+                } else {
+                    Either::B(future::err(format_err!(
+                        "SOA record for {} not found",
+                        settings.domain
+                    )))
+                }
+            })
+        };
+        get_master
+            .and_then(move |master| {
+                println!("master: {}", master);
+                let mut server = O::open(runtime.clone(), SocketAddr::new(master, 53));
+                server
+                    .create(settings.get_rrset(), settings.domain.clone())
+                    .map_err(failure::Error::from)
+            })
+            .map(|response| {
+                println!("REPSONSE: {:?}", response);
+            })
+    }
+
+    fn wait_for_update(
+        runtime: RuntimeHandle,
+        recursor: impl ClientHandle,
+        settings: Rc<Settings>,
+    ) -> impl Future<Item = (), Error = failure::Error> {
+        let get_authorative = util::get_ns_records(recursor.clone(), settings.domain.clone())
+            .map_err(failure::Error::from);
         let poll_servers = {
-            let settings = Rc::clone(&self.settings);
+            let settings = Rc::clone(&settings);
             get_authorative.and_then(move |authorative| {
                 let names = authorative
                     .into_iter()
                     .filter_map(|r| r.rdata().as_ns().cloned());
                 Self::poll_for_update(
-                    handle.clone(),
+                    runtime.clone(),
                     recursor.clone(),
                     names,
                     Rc::clone(&settings),
@@ -180,14 +260,13 @@ where
             let handle = runtime.clone();
             let server_name = server_name.clone();
             let inner_settings = Rc::clone(&settings);
-            let resolve =
-                util::resolve_authorative(recursor.clone(), server_name.clone()).map(move |ip| {
-                    if inner_settings.exclude.contains(&ip) {
-                        None
-                    } else {
-                        Some(O::open(handle.clone(), SocketAddr::new(ip, 53)))
-                    }
-                });
+            let resolve = util::resolve_ip(recursor.clone(), server_name.clone()).map(move |ip| {
+                if inner_settings.exclude.contains(&ip) {
+                    None
+                } else {
+                    Some(O::open(handle.clone(), SocketAddr::new(ip, 53)))
+                }
+            });
             let server_name = server_name.clone();
             let settings = Rc::clone(&settings);
             resolve.and_then(move |maybe_server| match maybe_server {
@@ -206,9 +285,9 @@ fn run(opt: Opt) -> Result<(), failure::Error> {
     let tcp = opt.tcp;
     let settings = Settings::try_from(opt)?;
     let app = if tcp {
-        Box::new(App::<TcpOpen>::new(runtime.handle(), settings)?.run()) as AppFuture
+        App::<TcpOpen>::new(runtime.handle(), settings)?.run()
     } else {
-        Box::new(App::<UdpOpen>::new(runtime.handle(), settings)?.run())
+        App::<UdpOpen>::new(runtime.handle(), settings)?.run()
     };
     runtime.block_on(app).map(|_| ())
 }

@@ -68,7 +68,7 @@ where
         .map(|response| response.answers().to_vec())
 }
 
-pub fn resolve_authorative(
+pub fn resolve_ip(
     recursor: impl ClientHandle,
     server_name: rr::Name,
 ) -> impl Future<Item = IpAddr, Error = failure::Error> {

@@ -28,6 +28,35 @@ pub struct Settings {
     pub timeout: Duration,
     pub verbose: bool,
     pub exclude: Vec<IpAddr>,
+    pub mode: Mode,
+}
+
+#[derive(Debug, Eq, PartialEq, Ord, PartialOrd)]
+pub enum Mode {
+    UpdateAndMonitor,
+    Update,
+    Monitor,
+}
+
+impl Settings {
+    pub fn get_rrset(&self) -> rr::RecordSet {
+        let mut rrset = rr::RecordSet::new(&self.entry, self.expected.record_type(), 0);
+        for data in self.expected.iter_data() {
+            rrset.add_rdata(data);
+        }
+        rrset
+    }
+}
+
+pub fn create_entry(
+    mut server: impl ClientHandle,
+    settings: Rc<Settings>,
+) -> impl Future<Item = (), Error = failure::Error> {
+    let rset = settings.get_rrset();
+    server
+        .create(rset, settings.domain.clone())
+        .map(|_response| ())
+        .map_err(Into::into)
 }
 
 fn poll_entries<F>(
