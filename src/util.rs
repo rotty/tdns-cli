@@ -1,6 +1,5 @@
 use std::{
-    convert::TryFrom,
-    fmt, fs,
+    fs,
     net::{IpAddr, SocketAddr},
 };
 
@@ -13,8 +12,6 @@ use trust_dns::{
     rr::{self, Record, RecordType},
 };
 
-use crate::record::{self, TryFromRDataError};
-
 pub fn get_system_resolver() -> Option<SocketAddr> {
     use resolv_conf::{Config, ScopedIp};
     let resolv_conf = fs::read("/etc/resolv.conf").ok()?;
@@ -23,30 +20,6 @@ pub fn get_system_resolver() -> Option<SocketAddr> {
         ScopedIp::V4(v4) => Some(SocketAddr::new(v4.clone().into(), 53)),
         ScopedIp::V6(_, _) => None, // TODO: IPv6 support
     })
-}
-
-pub struct ShowRecordData<'a>(pub &'a [Record]);
-
-impl<'a> fmt::Display for ShowRecordData<'a> {
-    fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
-        write!(f, "[")?;
-        for (i, item) in self.0.iter().enumerate() {
-            match record::Data::try_from(item.rdata()) {
-                Ok(data) => write!(f, "{}", data)?,
-                Err(e) => match e {
-                    TryFromRDataError::UnsupportedType(rtype) => write!(f, "unknown:{}", rtype)?,
-                    TryFromRDataError::FromUtf8(e) => {
-                        write!(f, "non-utf8:'{}'", String::from_utf8_lossy(e.as_bytes()))?
-                    }
-                },
-            }
-            if i + 1 < self.0.len() {
-                write!(f, ", ")?;
-            }
-        }
-        write!(f, "]")?;
-        Ok(())
-    }
 }
 
 pub fn dns_query(

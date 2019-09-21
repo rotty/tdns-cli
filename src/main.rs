@@ -1,6 +1,5 @@
 use std::{
     convert::TryFrom,
-    iter::FromIterator,
     net::{IpAddr, SocketAddr},
     rc::Rc,
     time::Duration,
@@ -24,7 +23,7 @@ use trust_dns::{
 };
 
 use tdns_update::{
-    record::{self, RecordSet},
+    record::{RecordSet, RsData},
     update::{poll_server, Settings},
     util,
 };
@@ -49,7 +48,7 @@ struct Opt {
     /// Entry to monitor.
     entry: rr::Name,
     /// Expected query response.
-    expected: Vec<record::Data>,
+    expected: RsData,
     /// Excluded IP address.
     #[structopt(long)]
     exclude: Option<IpAddr>,
@@ -112,7 +111,7 @@ impl TryFrom<Opt> for Settings {
         let entry = opt.entry.append_name(&opt.domain);
         Ok(Settings {
             resolver,
-            expected: RecordSet::from_iter(opt.expected),
+            expected: RecordSet::new(entry.clone(), opt.expected),
             domain: opt.domain,
             entry,
             exclude: opt.exclude.into_iter().collect(),

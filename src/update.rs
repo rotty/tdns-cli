@@ -1,4 +1,5 @@
 use std::{
+    convert::TryFrom,
     net::{IpAddr, SocketAddr},
     rc::Rc,
     time::{Duration, Instant},
@@ -12,14 +13,10 @@ use tokio::timer::Delay;
 use trust_dns::{
     client::ClientHandle,
     op::DnsResponse,
-    proto::{
-        op::{message::Message, query::Query},
-        xfer::dns_request::DnsRequest,
-    },
-    rr::{self, Record, RecordType},
+    rr::{self, Record},
 };
 
-use crate::{record::RecordSet, util::ShowRecordData};
+use crate::record::RecordSet;
 
 #[derive(Debug)]
 pub struct Settings {
@@ -33,38 +30,38 @@ pub struct Settings {
     pub exclude: Vec<IpAddr>,
 }
 
-pub fn poll_entries<F>(
+fn poll_entries<F>(
     mut server: impl ClientHandle,
     server_name: rr::Name,
-    name: rr::Name,
-    record_types: &[RecordType],
-    interval: Duration,
-    done: F,
+    settings: Rc<Settings>,
+    report: F,
 ) -> impl Future<Item = (), Error = failure::Error>
 where
-    F: Fn(&rr::Name, &[Record]) -> bool + 'static,
+    F: Fn(&rr::Name, &[Record], bool) + 'static,
 {
-    let mut message = Message::new();
-    message.add_queries(
-        record_types
-            .iter()
-            .map(|rtype| Query::query(name.clone(), *rtype)),
-    );
     use future::Loop;
-    future::loop_fn(done, move |done| {
+    future::loop_fn(report, move |report| {
         let server_name = server_name.clone();
+        let settings = Rc::clone(&settings);
         server
-            .send(DnsRequest::new(message.clone(), Default::default()))
+            .query(
+                settings.entry.clone(),
+                settings.expected.dns_class(),
+                settings.expected.record_type(),
+            )
             .map_err(failure::Error::from)
             .and_then(move |response: DnsResponse| {
-                if done(&server_name, response.answers()) {
+                let answers = response.answers();
+                let hit = settings.expected.satisfied_by(answers);
+                report(&server_name, answers, hit);
+                if hit {
                     Either::A(future::ok(Loop::Break(())))
                 } else {
-                    let when = Instant::now() + interval;
+                    let when = Instant::now() + settings.interval;
                     Either::B(
                         Delay::new(when)
                             .map_err(failure::Error::from)
-                            .map(|_| Loop::Continue(done)),
+                            .map(|_| Loop::Continue(report)),
                     )
                 }
             })
@@ -79,24 +76,24 @@ pub fn poll_server(
     poll_entries(
         server,
         server_name,
-        settings.entry.clone(),
-        settings.expected.to_record_types().as_slice(),
-        settings.interval,
-        move |server, records| {
-            let matched = settings.expected.satisfied_by(records);
+        Rc::clone(&settings),
+        move |server, records, hit| {
             if settings.verbose {
-                if !matched {
+                if hit {
+                    println!("{}: match found", server);
+                } else {
+                    let rset = match RecordSet::try_from(records) {
+                        Ok(rs) => format!("{}", rs.data()),
+                        Err(e) => format!("{}", e),
+                    };
                     println!(
                         "{}: records not matching: expected {}, found {}",
                         server,
-                        settings.expected,
-                        ShowRecordData(records),
+                        settings.expected.data(),
+                        rset,
                     );
-                } else {
-                    println!("{}: match found", server);
                 }
             }
-            matched
         },
     )
 }
