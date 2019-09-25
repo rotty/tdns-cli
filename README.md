@@ -1,16 +1,24 @@
 # tdns-update
 
-A dynamic DNS update checker, with aspirations to do the updating
-itself.
+A dynamic DNS updater and update checker.
 
-`tdns-update` monitors an entry in a DNS zone, checking all the
-authoritative nameservers in the zone, and waits until the records for
-that entry reach a specified expected state.
+Note that `tdns-update` is currently in its initial development phase,
+and hasn't even been deployed in earnest by its author. The usual
+caveats apply. If you're still interested, read on for more
+information of what is currently working, and what is planned.
 
-After initiating a dynamic DNS update request, if you need to know
-when the update has propagated to all authoritative nameservers for
-the affected zone, this is exactly the job `tdns-update` can do for
-you.
+`tdns-update` updates and/or monitors an entry in a DNS zone. The
+updating functionality is currently an _extremely_ limited subset of
+what the `nsupdate` utility from the ISC BIND provides, but providing
+both updates and monitoring in a single native executable is novel, at
+least to the author's knowledge. There are doubtlessly numerous shell
+scripts around that provide similar functionality, with varying
+degrees of sophistication. `tdns-update` aims to its job correctly and
+efficiently, taking no shortcuts.
+
+With a single `tnds-update` invocation, you can both perform a DNS
+update operation, and wait for all the authoritative nameservers in
+the zone to provide the updated records.
 
 `tdns-update` is implemented in Rust, taking advantage of the terrific
 [`trust-dns`] DNS client library, and uses a single-threaded,
@@ -18,9 +26,6 @@ non-blocking runtime. Translated from developer speak, this means that
 `tdns-udpate` should be very light on system resources, and cope well
 even with unreasonably large tasks, such as monitoring a record in a
 zone that is served by hundreds of authoritative nameservers.
-
-Note that `tdns-update` is currently in its initial development phase,
-and hasn't even been deployed by its author. The usual caveats apply.
 
 # Missing features
 
@@ -31,14 +36,14 @@ considered not doing the job properly:
 - [X] Use system resolver by default. This currently only works on
       systems that have `/etc/resolv.conf`.
 - [ ] Probe all addresses an `NS` entry resolves to.
-- [ ] IPv6 support; this should be working, but as of yet untested.
+- [ ] IPv6 support; the code is largely agnostic of IP address family,
+      but IPv6 support has not yet been actively worked on.
 
 # Planned features
 
 - [X] TCP support -- currently, only UDP-based DNS is supported.
-- [ ] DNS Update functionality. Since [`trust-dns`], the DNS client
-      library used by `tdns-update` implements this mechanism,
-      including update functionality should be not too hard to add.
+- [ ] Useful DNS Update functionality. Currently, the functionality is
+      very in a very limited proof-of-concept state.
 
 ## Installation
 
