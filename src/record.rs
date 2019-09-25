@@ -149,18 +149,16 @@ impl FromStr for RsData {
         let rdata_parts = rdata.split(',');
         match rtype.as_str() {
             "TXT" => Ok(RsData::TXT(
-                rdata_parts.into_iter().map(|s| s.to_owned()).collect(),
+                rdata_parts.map(|s| s.to_owned()).collect(),
             )),
             "A" => {
                 let addrs = rdata_parts
-                    .into_iter()
                     .map(|part| part.parse().map_err(RsDataParseError::Addr))
                     .collect::<Result<_, _>>()?;
                 Ok(RsData::A(addrs))
             }
             "AAAA" => {
                 let addrs = rdata_parts
-                    .into_iter()
                     .map(|part| part.parse().map_err(RsDataParseError::Addr))
                     .collect::<Result<_, _>>()?;
                 Ok(RsData::AAAA(addrs))
@@ -244,12 +242,12 @@ impl TryFrom<&[rr::Record]> for RecordSet {
                 let data = match key.record_type {
                     rr::RecordType::A => RsData::A(
                         rrs.iter()
-                            .map(|rr| rr.rdata().as_a().unwrap().clone())
+                            .map(|rr| *rr.rdata().as_a().unwrap())
                             .collect(),
                     ),
                     rr::RecordType::AAAA => RsData::AAAA(
                         rrs.iter()
-                            .map(|rr| rr.rdata().as_aaaa().unwrap().clone())
+                            .map(|rr| *rr.rdata().as_aaaa().unwrap())
                             .collect(),
                     ),
                     rr::RecordType::TXT => RsData::TXT(
