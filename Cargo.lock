@@ -798,7 +798,7 @@ dependencies = [
 
 [[package]]
 name = "tdns-update"
-version = "0.0.1"
+version = "0.0.2"
 dependencies = [
  "failure 0.1.5 (registry+https://github.com/rust-lang/crates.io-index)",
  "futures 0.1.29 (registry+https://github.com/rust-lang/crates.io-index)",
