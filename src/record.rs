@@ -148,9 +148,7 @@ impl FromStr for RsData {
         let (rtype, rdata) = (parts[0].to_uppercase(), parts[1]);
         let rdata_parts = rdata.split(',');
         match rtype.as_str() {
-            "TXT" => Ok(RsData::TXT(
-                rdata_parts.map(|s| s.to_owned()).collect(),
-            )),
+            "TXT" => Ok(RsData::TXT(rdata_parts.map(|s| s.to_owned()).collect())),
             "A" => {
                 let addrs = rdata_parts
                     .map(|part| part.parse().map_err(RsDataParseError::Addr))
@@ -240,11 +238,9 @@ impl TryFrom<&[rr::Record]> for RecordSet {
                 // study its code and submit a documentation patch to clarify
                 // behavior in either case.
                 let data = match key.record_type {
-                    rr::RecordType::A => RsData::A(
-                        rrs.iter()
-                            .map(|rr| *rr.rdata().as_a().unwrap())
-                            .collect(),
-                    ),
+                    rr::RecordType::A => {
+                        RsData::A(rrs.iter().map(|rr| *rr.rdata().as_a().unwrap()).collect())
+                    }
                     rr::RecordType::AAAA => RsData::AAAA(
                         rrs.iter()
                             .map(|rr| *rr.rdata().as_aaaa().unwrap())
