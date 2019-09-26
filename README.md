@@ -28,6 +28,25 @@ non-blocking runtime. Translated from developer speak, this means that
 even with unreasonably large tasks, such as monitoring a record in a
 zone that is served by hundreds of authoritative nameservers.
 
+## Documentation
+
+The documentation for `tdns-update` comes in the form of [man
+page](./tnds-update.1.md). The markdown file can be turned in to troff
+format for viewing with the `man` command using [pandoc]. Note that to
+the markdown source is tailored toward producing good output when fed
+through pandoc, and will not be rendered nicely on github or alike,
+and is not ideal to read in plain, either.
+
+You can generate the manpage using the included `Makefile`, and view
+the man page using the Unix `man` command:
+
+```sh
+make tdns-update.1 && man -l tnds-update.1
+```
+
+You can also find a pandoc HTML rendering of the manpage
+[online](https://r0tty.org/software/tnds-update.1.html).
+
 # Missing features
 
 Without those, `tdns-update` cannot function reliably, or can be
@@ -117,3 +136,4 @@ part of the hook script to deploy the letsencrypt challenge to DNS.
 [Rust toolchain]: https://www.rust-lang.org/tools/install
 [`trust-dns`]: https://github.com/bluejekyll/trust-dns
 [DNS-01 protocol]: https://letsencrypt.org/docs/challenge-types/
+[pandoc]: https://pandoc.org/

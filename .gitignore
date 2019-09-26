@@ -1,2 +1,12 @@
+# Standard Rust ignores
 /target
 **/*.rs.bk
+
+# Generated man page. This is built when using the included Makefile.
+/tdns-update.1
+/tdns-update.1.html
+
+# `cargo-tarpaulin --out Xml` output, and the HTML rendering by
+# pycobertura.
+/cobertura.xml
+/cobertura.html
