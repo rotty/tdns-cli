@@ -11,8 +11,7 @@ use trust_dns::rr;
 
 use tdns_update::{
     record::{RecordSet, RsData},
-    update::Update,
-    update::{Mode, Settings},
+    update::{Operation, Settings, Update},
     util, TcpOpen, UdpOpen,
 };
 
@@ -34,13 +33,21 @@ struct Opt {
     /// Entry to monitor.
     entry: rr::Name,
     /// Expected query response.
-    expected: RsData,
+    rs_data: RsData,
     /// Excluded IP address.
     #[structopt(long)]
     exclude: Option<IpAddr>,
     /// Do not perform the update.
     #[structopt(long)]
     no_op: bool,
+    /// Delete matching records.
+    #[structopt(long)]
+    delete: bool,
+    /// Create the specified records.
+    ///
+    /// Ensures that no records for the added types exist.
+    #[structopt(long)]
+    create: bool,
     /// Do not monitor nameservers for the update.
     #[structopt(long)]
     no_wait: bool,
@@ -66,26 +73,27 @@ impl TryFrom<Opt> for Settings {
                 format_err!("could not obtain resolver address from operating system")
             })?;
         let entry = opt.entry.append_name(&opt.domain);
+        let operation = if opt.no_op {
+            Operation::None
+        } else {
+            match (opt.create, opt.delete) {
+                (true, true) => return Err(format_err!("Conflicting operations specified")),
+                (true, false) => Operation::Create,
+                (false, true) => Operation::Delete,
+                (false, false) => Operation::None,
+            }
+        };
         Ok(Settings {
             resolver,
-            expected: RecordSet::new(entry.clone(), opt.expected),
+            rset: RecordSet::new(entry.clone(), opt.rs_data),
             zone: opt.domain,
             entry,
             exclude: opt.exclude.into_iter().collect(),
             interval: Duration::from_secs(opt.interval.unwrap_or(1)),
             timeout: Duration::from_secs(opt.timeout.unwrap_or(60)),
             verbose: opt.verbose,
-            mode: match (!opt.no_op, !opt.no_wait) {
-                (true, true) => Mode::UpdateAndMonitor,
-                (true, false) => Mode::Update,
-                (false, true) => Mode::Monitor,
-                (false, false) => {
-                    return Err(format_err!(concat!(
-                        "Both --no-op and --no-wait specified.\n",
-                        "If you really wanted that, why not just use the POSIX `true` utility?"
-                    )))
-                }
-            },
+            operation,
+            monitor: !opt.no_wait,
         })
     }
 }

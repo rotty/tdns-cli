@@ -3,7 +3,7 @@ use std::time::{Duration, Instant};
 use futures::{future, prelude::*};
 use tdns_update::{
     record::RecordSet,
-    update::{Mode, Settings, Update},
+    update::{Operation, Settings, Update},
 };
 use tokio::{runtime::current_thread::Runtime, timer::Delay};
 use trust_dns::rr;
@@ -13,18 +13,19 @@ use mock::{parse_rdata, ZoneEntries};
 
 const TIMEOUT: Duration = Duration::from_millis(10);
 
-fn test_settings(mode: Mode, expected: &str) -> Settings {
+fn test_settings(operation: Operation, monitor: bool, expected: &str) -> Settings {
     Settings {
         zone: "example.org".parse().unwrap(),
         entry: "foo.example.org".parse().unwrap(),
-        expected: RecordSet::new(
+        rset: RecordSet::new(
             "foo.example.org".parse().unwrap(),
             expected.parse().unwrap(),
         ),
         interval: TIMEOUT / 100,
         timeout: TIMEOUT,
         verbose: true,
-        mode,
+        operation,
+        monitor,
         ..Default::default()
     }
 }
@@ -90,7 +91,7 @@ fn test_monitor_match() {
     let update = Update::new(
         runtime.handle(),
         dns,
-        test_settings(Mode::Monitor, "A:192.168.1.1"),
+        test_settings(Operation::None, true, "A:192.168.1.1"),
     )
     .unwrap()
     .run();
@@ -108,7 +109,7 @@ fn test_monitor_mismatch() {
     let update = Update::new(
         runtime.handle(),
         dns,
-        test_settings(Mode::Monitor, "A:192.168.1.1"),
+        test_settings(Operation::None, true, "A:192.168.1.1"),
     )
     .unwrap()
     .run();
@@ -117,13 +118,13 @@ fn test_monitor_mismatch() {
 }
 
 #[test]
-fn test_update_immediate() {
+fn test_create_immediate() {
     let mut runtime = Runtime::new().unwrap();
     let (dns, _) = mock_dns_shared(&[("foo.example.org", "A", "192.168.1.1")]);
     let update = Update::new(
         runtime.handle(),
         dns,
-        test_settings(Mode::UpdateAndMonitor, "A:192.168.1.2"),
+        test_settings(Operation::Create, true, "A:192.168.1.2"),
     )
     .unwrap()
     .run();
@@ -131,13 +132,13 @@ fn test_update_immediate() {
 }
 
 #[test]
-fn test_update_delayed() {
+fn test_create_delayed() {
     let mut runtime = Runtime::new().unwrap();
     let (dns, zone) = mock_dns_independent(&[("foo.example.org", "A", "192.168.1.1")]);
     let update = Update::new(
         runtime.handle(),
         dns,
-        test_settings(Mode::UpdateAndMonitor, "A:192.168.1.2"),
+        test_settings(Operation::Create, true, "A:192.168.1.2"),
     )
     .unwrap()
     .run();
@@ -155,4 +156,18 @@ fn test_update_delayed() {
     runtime
         .block_on(future::join_all(vec![update, Box::new(update_auth)]))
         .unwrap();
+}
+
+#[test]
+fn test_delete() {
+    let mut runtime = Runtime::new().unwrap();
+    let (dns, _) = mock_dns_shared(&[("foo.example.org", "A", "192.168.1.1")]);
+    let update = Update::new(
+        runtime.handle(),
+        dns,
+        test_settings(Operation::Delete, true, "A:192.168.1.1"),
+    )
+    .unwrap()
+    .run();
+    runtime.block_on(update).unwrap();
 }

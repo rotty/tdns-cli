@@ -55,10 +55,11 @@ impl RecordSet {
         RsDataIter(inner)
     }
 
-    pub fn satisfied_by(&self, rrs: &[rr::Record]) -> bool {
-        match RecordSet::try_from(rrs) {
-            Err(_) => false,
-            Ok(rs) => self == &rs,
+    pub fn is_empty(&self) -> bool {
+        match &self.data {
+            RsData::TXT(txts) => txts.is_empty(),
+            RsData::A(addrs) => addrs.is_empty(),
+            RsData::AAAA(addrs) => addrs.is_empty(),
         }
     }
 }
@@ -142,6 +143,14 @@ impl FromStr for RsData {
 
     fn from_str(s: &str) -> Result<Self, Self::Err> {
         let parts: Vec<_> = s.splitn(2, ':').collect();
+        if parts.len() == 1 {
+            return match parts[0] {
+                "TXT" => Ok(RsData::TXT(Default::default())),
+                "A" => Ok(RsData::A(Default::default())),
+                "AAAA" => Ok(RsData::AAAA(Default::default())),
+                _ => Err(RsDataParseError::UnknownType),
+            };
+        }
         if parts.len() != 2 {
             return Err(RsDataParseError::MissingType);
         }
