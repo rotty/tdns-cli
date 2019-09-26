@@ -44,13 +44,20 @@ considered not doing the job properly:
 - [X] TCP support -- currently, only UDP-based DNS is supported.
 - [ ] Useful DNS Update functionality. Currently, the functionality is
       very in a very limited proof-of-concept state.
+- [ ] A test suite that checks the application logic against a mocked
+      "DNS server".
 
 ## Installation
 
 As `tdns-update` is written in Rust, you need a [Rust toolchain]. Rust
-1.37 or newer is required.
+1.37 or newer is required. To obtain the latest release from
+[crates.io], use:
 
-You can run it directly from the source checkout:
+```sh
+cargo install tdns-update
+```
+
+Alternatively, you can run it directly from the source checkout:
 
 ```sh
 cargo run -- --help
