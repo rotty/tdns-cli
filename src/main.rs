@@ -12,23 +12,16 @@ use futures::{
 };
 use structopt::StructOpt;
 use tokio::{prelude::*, runtime::current_thread::Runtime};
-use tokio_tcp::TcpStream;
-use tokio_udp::UdpSocket;
 use trust_dns::{
-    client::{BasicClientHandle, ClientFuture, ClientHandle},
-    proto::{udp::UdpResponse, xfer::dns_multiplexer::DnsMultiplexerSerialResponse},
+    client::ClientHandle,
     rr,
-    tcp::TcpClientStream,
-    udp::UdpClientStream,
 };
 
 use tdns_update::{
     record::{RecordSet, RsData},
     update::{poll_server, Mode, Settings},
-    util,
+    util, DnsOpen, RuntimeHandle, TcpOpen, UdpOpen,
 };
-
-type RuntimeHandle = tokio::runtime::current_thread::Handle;
 
 /// Wait for a DNS entry to obtain a specified state.
 #[derive(StructOpt)]
@@ -67,35 +60,6 @@ struct Opt {
     /// Use TCP for all DNS requests.
     #[structopt(long)]
     tcp: bool,
-}
-
-trait DnsOpen {
-    type Client: ClientHandle;
-    fn open(runtime: RuntimeHandle, addr: SocketAddr) -> Self::Client;
-}
-
-struct TcpOpen;
-
-impl DnsOpen for TcpOpen {
-    type Client = BasicClientHandle<DnsMultiplexerSerialResponse>;
-    fn open(runtime: RuntimeHandle, addr: SocketAddr) -> Self::Client {
-        let (connect, handle) = TcpClientStream::<TcpStream>::new(addr);
-        let (bg, client) = ClientFuture::new(connect, handle, None);
-        runtime.spawn(bg).unwrap();
-        client
-    }
-}
-
-struct UdpOpen;
-
-impl DnsOpen for UdpOpen {
-    type Client = BasicClientHandle<UdpResponse<tokio_udp::UdpSocket>>;
-    fn open(runtime: RuntimeHandle, addr: SocketAddr) -> Self::Client {
-        let stream = UdpClientStream::<UdpSocket>::new(addr);
-        let (bg, client) = ClientFuture::connect(stream);
-        runtime.spawn(bg).unwrap();
-        client
-    }
 }
 
 struct App<O: DnsOpen> {
