@@ -95,9 +95,9 @@ fn run(opt: Opt) -> Result<(), failure::Error> {
     let tcp = opt.tcp;
     let settings = Settings::try_from(opt)?;
     let app = if tcp {
-        Update::<TcpOpen>::new(runtime.handle(), settings)?.run()
+        Update::new(runtime.handle(), TcpOpen, settings)?.run()
     } else {
-        Update::<UdpOpen>::new(runtime.handle(), settings)?.run()
+        Update::new(runtime.handle(), UdpOpen, settings)?.run()
     };
     runtime.block_on(app).map(|_| ())
 }

@@ -50,6 +50,7 @@ impl Settings {
 }
 
 pub struct Update<O: DnsOpen> {
+    dns: O,
     runtime: RuntimeHandle,
     recursor: O::Client,
     settings: Rc<Settings>,
@@ -59,12 +60,13 @@ impl<O> Update<O>
 where
     O: DnsOpen + 'static,
 {
-    pub fn new(runtime: RuntimeHandle, settings: Settings) -> Result<Self, failure::Error> {
-        let resolver = settings.resolver;
+    pub fn new(runtime: RuntimeHandle, mut dns: O, settings: Settings) -> Result<Self, failure::Error> {
+        let recursor = dns.open(runtime.clone(), settings.resolver);
         Ok(Update {
+            dns,
             settings: Rc::new(settings),
             runtime: runtime.clone(),
-            recursor: O::open(runtime, resolver),
+            recursor,
         })
     }
 
@@ -72,23 +74,26 @@ where
         let runtime = self.runtime.clone();
         let recursor = self.recursor.clone();
         let settings = self.settings.clone();
+        let dns = self.dns.clone();
         match settings.mode {
             Mode::UpdateAndMonitor => Box::new(
-                Self::perform_update(runtime.clone(), recursor.clone(), settings.clone())
-                    .and_then(|_| Self::wait_for_update(runtime, recursor, settings)),
+                Self::perform_update(runtime.clone(), dns.clone(), recursor.clone(), settings.clone())
+                    .and_then(|_| Self::wait_for_update(runtime, dns, recursor, settings)),
             ),
 
             Mode::Update => Box::new(Self::perform_update(
                 runtime.clone(),
+                dns,
                 recursor.clone(),
                 settings.clone(),
             )),
-            Mode::Monitor => Box::new(Self::wait_for_update(runtime, recursor, settings)),
+            Mode::Monitor => Box::new(Self::wait_for_update(runtime, dns, recursor, settings)),
         }
     }
 
     fn perform_update(
         runtime: RuntimeHandle,
+        mut dns: impl DnsOpen,
         mut recursor: impl ClientHandle,
         settings: Rc<Settings>,
     ) -> impl Future<Item = (), Error = failure::Error> {
@@ -119,7 +124,7 @@ where
         get_master
             .and_then(move |master| {
                 println!("master: {}", master);
-                let mut server = O::open(runtime.clone(), SocketAddr::new(master, 53));
+                let mut server = dns.open(runtime.clone(), SocketAddr::new(master, 53));
                 server
                     .create(settings.get_rrset(), settings.domain.clone())
                     .map_err(failure::Error::from)
@@ -131,6 +136,7 @@ where
 
     fn wait_for_update(
         runtime: RuntimeHandle,
+        dns: impl DnsOpen,
         recursor: impl ClientHandle,
         settings: Rc<Settings>,
     ) -> impl Future<Item = (), Error = failure::Error> {
@@ -144,6 +150,7 @@ where
                     .filter_map(|r| r.rdata().as_ns().cloned());
                 Self::poll_for_update(
                     runtime.clone(),
+                    dns,
                     recursor.clone(),
                     names,
                     Rc::clone(&settings),
@@ -165,6 +172,7 @@ where
 
     fn poll_for_update<I>(
         runtime: RuntimeHandle,
+        dns: impl DnsOpen,
         recursor: impl ClientHandle,
         authorative: I,
         settings: Rc<Settings>,
@@ -176,11 +184,12 @@ where
             let handle = runtime.clone();
             let server_name = server_name.clone();
             let inner_settings = Rc::clone(&settings);
+            let mut dns = dns.clone();
             let resolve = util::resolve_ip(recursor.clone(), server_name.clone()).map(move |ip| {
                 if inner_settings.exclude.contains(&ip) {
                     None
                 } else {
-                    Some(O::open(handle.clone(), SocketAddr::new(ip, 53)))
+                    Some(dns.open(handle.clone(), SocketAddr::new(ip, 53)))
                 }
             });
             let server_name = server_name.clone();

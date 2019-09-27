@@ -12,16 +12,17 @@ use trust_dns::{
 
 pub type RuntimeHandle = tokio::runtime::current_thread::Handle;
 
-pub trait DnsOpen {
+pub trait DnsOpen: Clone {
     type Client: ClientHandle;
-    fn open(runtime: RuntimeHandle, addr: SocketAddr) -> Self::Client;
+    fn open(&mut self, runtime: RuntimeHandle, addr: SocketAddr) -> Self::Client;
 }
 
+#[derive(Debug, Clone)]
 pub struct TcpOpen;
 
 impl DnsOpen for TcpOpen {
     type Client = BasicClientHandle<DnsMultiplexerSerialResponse>;
-    fn open(runtime: RuntimeHandle, addr: SocketAddr) -> Self::Client {
+    fn open(&mut self, runtime: RuntimeHandle, addr: SocketAddr) -> Self::Client {
         let (connect, handle) = TcpClientStream::<TcpStream>::new(addr);
         let (bg, client) = ClientFuture::new(connect, handle, None);
         runtime.spawn(bg).unwrap();
@@ -29,11 +30,12 @@ impl DnsOpen for TcpOpen {
     }
 }
 
+#[derive(Debug, Clone)]
 pub struct UdpOpen;
 
 impl DnsOpen for UdpOpen {
     type Client = BasicClientHandle<UdpResponse<tokio_udp::UdpSocket>>;
-    fn open(runtime: RuntimeHandle, addr: SocketAddr) -> Self::Client {
+    fn open(&mut self, runtime: RuntimeHandle, addr: SocketAddr) -> Self::Client {
         let stream = UdpClientStream::<UdpSocket>::new(addr);
         let (bg, client) = ClientFuture::connect(stream);
         runtime.spawn(bg).unwrap();
