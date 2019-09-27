@@ -33,18 +33,18 @@ impl Zone {
             .filter(move |r| r.name() == query.name())
             .cloned()
     }
-    fn update(&mut self, update: &rr::Record) {
-        dbg!(update);
-        if let Some(record) = self.0.iter_mut().find(|r| {
-            dbg!(r);
-            r.record_type() == update.record_type() && r.name() == update.name()
-        }) {
+    pub fn update(&mut self, update: &rr::Record) {
+        if let Some(record) = self
+            .0
+            .iter_mut()
+            .find(|r| r.record_type() == update.record_type() && r.name() == update.name())
+        {
             record.set_rdata(update.rdata().clone());
         }
     }
 }
 
-fn parse_rdata(rtype: &str, rdata: &str) -> Result<rr::RData, failure::Error> {
+pub fn parse_rdata(rtype: &str, rdata: &str) -> Result<rr::RData, failure::Error> {
     use rr::{rdata::SOA, RData};
     match rtype {
         "A" => Ok(RData::A(rdata.parse()?)),
@@ -105,6 +105,7 @@ impl Open {
         self.servers.insert(addr, server.clone());
         Ok(server)
     }
+
     pub fn add_shared(&mut self, addr: SocketAddr, zone: Handle<Zone>) {
         let server = Arc::new(Mutex::new(Server {
             zone,

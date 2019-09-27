@@ -1,13 +1,17 @@
-use std::time::Duration;
+use std::time::{Duration, Instant};
 
+use futures::{future, prelude::*};
 use tdns_update::{
     record::RecordSet,
     update::{Mode, Settings, Update},
 };
-use tokio::runtime::current_thread::Runtime;
+use tokio::{runtime::current_thread::Runtime, timer::Delay};
+use trust_dns::rr;
 
 mod mock;
-use mock::ZoneEntries;
+use mock::{parse_rdata, ZoneEntries};
+
+const TIMEOUT: Duration = Duration::from_millis(10);
 
 fn test_settings(mode: Mode, expected: &str) -> Settings {
     Settings {
@@ -17,8 +21,8 @@ fn test_settings(mode: Mode, expected: &str) -> Settings {
             "foo.example.org".parse().unwrap(),
             expected.parse().unwrap(),
         ),
-        interval: Duration::from_nanos(100),
-        timeout: Duration::from_millis(10),
+        interval: TIMEOUT / 100,
+        timeout: TIMEOUT,
         verbose: true,
         mode,
         ..Default::default()
@@ -59,20 +63,30 @@ fn mock_dns_fixed(
     dns
 }
 
-fn mock_dns_shared(master_data: ZoneEntries) -> mock::Open {
+fn mock_dns_shared(master_data: ZoneEntries) -> (mock::Open, mock::Handle<mock::Zone>) {
     let (mut dns, master) = mock_dns(master_data);
     let auth1_addr = "199.43.135.53:53".parse().unwrap();
     let auth2_addr = "199.43.133.53:53".parse().unwrap();
     let master = master.lock().unwrap();
     dns.add_shared(auth1_addr, master.zone());
     dns.add_shared(auth2_addr, master.zone());
-    dns
+    (dns, master.zone())
+}
+
+fn mock_dns_independent(master_data: ZoneEntries) -> (mock::Open, mock::Handle<mock::Zone>) {
+    let (mut dns, _) = mock_dns(master_data);
+    let auth1_addr = "199.43.135.53:53".parse().unwrap();
+    let auth2_addr = "199.43.133.53:53".parse().unwrap();
+    let slave = dns.add_server(auth1_addr, master_data).unwrap();
+    let slave = slave.lock().unwrap();
+    dns.add_shared(auth2_addr, slave.zone());
+    (dns, slave.zone())
 }
 
 #[test]
 fn test_monitor_match() {
     let mut runtime = Runtime::new().unwrap();
-    let dns = mock_dns_shared(&[("foo.example.org", "A", "192.168.1.1")]);
+    let (dns, _) = mock_dns_shared(&[("foo.example.org", "A", "192.168.1.1")]);
     let update = Update::new(
         runtime.handle(),
         dns,
@@ -99,13 +113,13 @@ fn test_monitor_mismatch() {
     .unwrap()
     .run();
     let result = runtime.block_on(update);
-    assert!(result.is_err()); // TODO: check for timeout error
+    assert!(result.is_err()); // TODO: check for timeout error, specifically
 }
 
 #[test]
-fn test_update() {
+fn test_update_immediate() {
     let mut runtime = Runtime::new().unwrap();
-    let dns = mock_dns_shared(&[("foo.example.org", "A", "192.168.1.1")]);
+    let (dns, _) = mock_dns_shared(&[("foo.example.org", "A", "192.168.1.1")]);
     let update = Update::new(
         runtime.handle(),
         dns,
@@ -114,4 +128,31 @@ fn test_update() {
     .unwrap()
     .run();
     runtime.block_on(update).unwrap();
+}
+
+#[test]
+fn test_update_delayed() {
+    let mut runtime = Runtime::new().unwrap();
+    let (dns, zone) = mock_dns_independent(&[("foo.example.org", "A", "192.168.1.1")]);
+    let update = Update::new(
+        runtime.handle(),
+        dns,
+        test_settings(Mode::UpdateAndMonitor, "A:192.168.1.2"),
+    )
+    .unwrap()
+    .run();
+    let updated = rr::Record::from_rdata(
+        "foo.example.org".parse().unwrap(),
+        0,
+        parse_rdata("A", "192.168.1.2").unwrap(),
+    );
+    let update_auth = Delay::new(Instant::now() + TIMEOUT / 2)
+        .map(|_| {
+            let mut zone = zone.lock().unwrap();
+            zone.update(&updated);
+        })
+        .map_err(Into::into);
+    runtime
+        .block_on(future::join_all(vec![update, Box::new(update_auth)]))
+        .unwrap();
 }
