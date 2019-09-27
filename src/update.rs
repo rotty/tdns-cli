@@ -17,9 +17,9 @@ use trust_dns::{
     rr::{self, Record},
 };
 
-use crate::{record::RecordSet, util, DnsOpen, RuntimeHandle};
+use crate::{record::{RecordSet, RsData}, util, DnsOpen, RuntimeHandle};
 
-#[derive(Debug)]
+#[derive(Debug, Clone)]
 pub struct Settings {
     pub resolver: SocketAddr,
     pub expected: RecordSet,
@@ -32,11 +32,33 @@ pub struct Settings {
     pub mode: Mode,
 }
 
-#[derive(Debug, Eq, PartialEq, Ord, PartialOrd)]
+impl Default for Settings {
+    fn default() -> Self {
+        Settings {
+            resolver: "127.0.0.1:53".parse().unwrap(),
+            expected: RecordSet::new(Default::default(), RsData::A(Default::default())),
+            domain: Default::default(),
+            entry: Default::default(),
+            interval: Default::default(),
+            timeout: Default::default(),
+            verbose: Default::default(),
+            exclude: Default::default(),
+            mode: Default::default(),
+        }
+    }
+}
+
+#[derive(Debug, Clone, Eq, PartialEq, Ord, PartialOrd)]
 pub enum Mode {
     UpdateAndMonitor,
     Update,
     Monitor,
+}
+
+impl Default for Mode {
+    fn default() -> Self {
+        Mode::UpdateAndMonitor
+    }
 }
 
 impl Settings {
