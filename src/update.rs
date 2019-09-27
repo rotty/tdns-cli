@@ -49,6 +49,7 @@ impl Settings {
     }
 }
 
+#[derive(Debug, Clone)]
 pub struct Update<O: DnsOpen> {
     dns: O,
     runtime: RuntimeHandle,
@@ -60,7 +61,11 @@ impl<O> Update<O>
 where
     O: DnsOpen + 'static,
 {
-    pub fn new(runtime: RuntimeHandle, mut dns: O, settings: Settings) -> Result<Self, failure::Error> {
+    pub fn new(
+        runtime: RuntimeHandle,
+        mut dns: O,
+        settings: Settings,
+    ) -> Result<Self, failure::Error> {
         let recursor = dns.open(runtime.clone(), settings.resolver);
         Ok(Update {
             dns,
@@ -71,41 +76,32 @@ where
     }
 
     pub fn run(&self) -> AppFuture {
-        let runtime = self.runtime.clone();
-        let recursor = self.recursor.clone();
-        let settings = self.settings.clone();
-        let dns = self.dns.clone();
-        match settings.mode {
-            Mode::UpdateAndMonitor => Box::new(
-                Self::perform_update(runtime.clone(), dns.clone(), recursor.clone(), settings.clone())
-                    .and_then(|_| Self::wait_for_update(runtime, dns, recursor, settings)),
-            ),
-
-            Mode::Update => Box::new(Self::perform_update(
-                runtime.clone(),
-                dns,
-                recursor.clone(),
-                settings.clone(),
-            )),
-            Mode::Monitor => Box::new(Self::wait_for_update(runtime, dns, recursor, settings)),
+        match self.settings.mode {
+            Mode::UpdateAndMonitor => {
+                let this = self.clone();
+                Box::new(
+                    self.clone()
+                        .perform_update()
+                        .and_then(|_| this.wait_for_update()),
+                )
+            }
+            Mode::Update => Box::new(self.clone().perform_update()),
+            Mode::Monitor => Box::new(self.clone().wait_for_update()),
         }
     }
 
-    fn perform_update(
-        runtime: RuntimeHandle,
-        mut dns: impl DnsOpen,
-        mut recursor: impl ClientHandle,
-        settings: Rc<Settings>,
-    ) -> impl Future<Item = (), Error = failure::Error> {
-        let get_soa = recursor
+    fn perform_update(mut self: Self) -> impl Future<Item = (), Error = failure::Error> {
+        let get_soa = self
+            .recursor
             .query(
-                settings.domain.clone(),
+                self.settings.domain.clone(),
                 rr::DNSClass::IN,
                 rr::RecordType::SOA,
             )
             .map_err(failure::Error::from);
         let get_master = {
-            let settings = settings.clone();
+            let settings = self.settings.clone();
+            let recursor = self.recursor.clone();
             get_soa.and_then(move |response| {
                 if let Some(soa) = response
                     .answers()
@@ -121,12 +117,15 @@ where
                 }
             })
         };
+        let mut this = self.clone();
         get_master
             .and_then(move |master| {
                 println!("master: {}", master);
-                let mut server = dns.open(runtime.clone(), SocketAddr::new(master, 53));
+                let mut server = this
+                    .dns
+                    .open(this.runtime.clone(), SocketAddr::new(master, 53));
                 server
-                    .create(settings.get_rrset(), settings.domain.clone())
+                    .create(this.settings.get_rrset(), this.settings.domain.clone())
                     .map_err(failure::Error::from)
             })
             .map(|response| {
@@ -134,36 +133,26 @@ where
             })
     }
 
-    fn wait_for_update(
-        runtime: RuntimeHandle,
-        dns: impl DnsOpen,
-        recursor: impl ClientHandle,
-        settings: Rc<Settings>,
-    ) -> impl Future<Item = (), Error = failure::Error> {
-        let get_authorative = util::get_ns_records(recursor.clone(), settings.domain.clone())
-            .map_err(failure::Error::from);
+    fn wait_for_update(self: Self) -> impl Future<Item = (), Error = failure::Error> {
+        let get_authorative =
+            util::get_ns_records(self.recursor.clone(), self.settings.domain.clone())
+                .map_err(failure::Error::from);
         let poll_servers = {
-            let settings = Rc::clone(&settings);
+            let this = self.clone();
             get_authorative.and_then(move |authorative| {
                 let names = authorative
                     .into_iter()
                     .filter_map(|r| r.rdata().as_ns().cloned());
-                Self::poll_for_update(
-                    runtime.clone(),
-                    dns,
-                    recursor.clone(),
-                    names,
-                    Rc::clone(&settings),
-                )
+                this.poll_for_update(names)
             })
         };
         poll_servers
-            .timeout(settings.timeout)
+            .timeout(self.settings.timeout)
             .map_err(|e| {
                 e.into_inner().unwrap_or_else(move || {
                     format_err!(
                         "timeout; update not complete within {}ms",
-                        settings.timeout.as_millis()
+                        self.settings.timeout.as_millis()
                     )
                 })
             })
@@ -171,15 +160,16 @@ where
     }
 
     fn poll_for_update<I>(
-        runtime: RuntimeHandle,
-        dns: impl DnsOpen,
-        recursor: impl ClientHandle,
+        self: Self,
         authorative: I,
-        settings: Rc<Settings>,
     ) -> impl Future<Item = (), Error = failure::Error>
     where
         I: IntoIterator<Item = rr::Name>,
     {
+        let runtime = self.runtime;
+        let dns = self.dns;
+        let recursor = self.recursor;
+        let settings = self.settings;
         future::join_all(authorative.into_iter().map(move |server_name| {
             let handle = runtime.clone();
             let server_name = server_name.clone();
