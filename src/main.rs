@@ -69,7 +69,7 @@ impl TryFrom<Opt> for Settings {
         Ok(Settings {
             resolver,
             expected: RecordSet::new(entry.clone(), opt.expected),
-            domain: opt.domain,
+            zone: opt.domain,
             entry,
             exclude: opt.exclude.into_iter().collect(),
             interval: Duration::from_secs(opt.interval.unwrap_or(1)),

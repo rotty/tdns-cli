@@ -23,7 +23,7 @@ use crate::{record::{RecordSet, RsData}, util, DnsOpen, RuntimeHandle};
 pub struct Settings {
     pub resolver: SocketAddr,
     pub expected: RecordSet,
-    pub domain: rr::Name,
+    pub zone: rr::Name,
     pub entry: rr::Name,
     pub interval: Duration,
     pub timeout: Duration,
@@ -37,7 +37,7 @@ impl Default for Settings {
         Settings {
             resolver: "127.0.0.1:53".parse().unwrap(),
             expected: RecordSet::new(Default::default(), RsData::A(Default::default())),
-            domain: Default::default(),
+            zone: Default::default(),
             entry: Default::default(),
             interval: Default::default(),
             timeout: Default::default(),
@@ -72,20 +72,20 @@ impl Settings {
 }
 
 #[derive(Debug, Clone)]
-pub struct Update<O: DnsOpen> {
-    dns: O,
+pub struct Update<D: DnsOpen> {
+    dns: D,
     runtime: RuntimeHandle,
-    recursor: O::Client,
+    recursor: D::Client,
     settings: Rc<Settings>,
 }
 
-impl<O> Update<O>
+impl<D> Update<D>
 where
-    O: DnsOpen + 'static,
+    D: DnsOpen + 'static,
 {
     pub fn new(
         runtime: RuntimeHandle,
-        mut dns: O,
+        mut dns: D,
         settings: Settings,
     ) -> Result<Self, failure::Error> {
         let recursor = dns.open(runtime.clone(), settings.resolver);
@@ -116,7 +116,7 @@ where
         let get_soa = self
             .recursor
             .query(
-                self.settings.domain.clone(),
+                self.settings.zone.clone(),
                 rr::DNSClass::IN,
                 rr::RecordType::SOA,
             )
@@ -134,7 +134,7 @@ where
                 } else {
                     Either::B(future::err(format_err!(
                         "SOA record for {} not found",
-                        settings.domain
+                        settings.zone
                     )))
                 }
             })
@@ -147,7 +147,7 @@ where
                     .dns
                     .open(this.runtime.clone(), SocketAddr::new(master, 53));
                 server
-                    .create(this.settings.get_rrset(), this.settings.domain.clone())
+                    .create(this.settings.get_rrset(), this.settings.zone.clone())
                     .map_err(failure::Error::from)
             })
             .map(|response| {
@@ -157,7 +157,7 @@ where
 
     fn wait_for_update(self: Self) -> impl Future<Item = (), Error = failure::Error> {
         let get_authorative =
-            util::get_ns_records(self.recursor.clone(), self.settings.domain.clone())
+            util::get_ns_records(self.recursor.clone(), self.settings.zone.clone())
                 .map_err(failure::Error::from);
         let poll_servers = {
             let this = self.clone();
