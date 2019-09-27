@@ -7,15 +7,20 @@ use std::{
 
 use failure::format_err;
 use futures::future::{self, FutureResult};
-use trust_dns::proto::{
-    error::ProtoError,
-    op::{Message, Query},
-    rr,
-    xfer::{DnsRequest, DnsResponse},
-    DnsHandle,
+use trust_dns::{
+    op::update_message::UpdateMessage,
+    proto::{
+        error::ProtoError,
+        op::{Message, OpCode, Query},
+        rr,
+        xfer::{DnsRequest, DnsResponse},
+        DnsHandle,
+    },
 };
 
 use tdns_update::{DnsOpen, RuntimeHandle};
+
+pub type Handle<T> = Arc<Mutex<T>>;
 
 #[derive(Debug, Clone)]
 pub struct Zone(Vec<rr::Record>);
@@ -23,12 +28,24 @@ pub struct Zone(Vec<rr::Record>);
 impl Zone {
     fn matches(&self, query: &Query) -> impl Iterator<Item = rr::Record> + '_ {
         let query = query.clone();
-        self.0.iter().filter(move |r| r.name() == query.name()).cloned()
+        self.0
+            .iter()
+            .filter(move |r| r.name() == query.name())
+            .cloned()
+    }
+    fn update(&mut self, update: &rr::Record) {
+        dbg!(update);
+        if let Some(record) = self.0.iter_mut().find(|r| {
+            dbg!(r);
+            r.record_type() == update.record_type() && r.name() == update.name()
+        }) {
+            record.set_rdata(update.rdata().clone());
+        }
     }
 }
 
 fn parse_rdata(rtype: &str, rdata: &str) -> Result<rr::RData, failure::Error> {
-    use rr::{RData, rdata::SOA};
+    use rr::{rdata::SOA, RData};
     match rtype {
         "A" => Ok(RData::A(rdata.parse()?)),
         "AAAA" => Ok(RData::AAAA(rdata.parse()?)),
@@ -50,10 +67,12 @@ fn parse_rdata(rtype: &str, rdata: &str) -> Result<rr::RData, failure::Error> {
     }
 }
 
-impl TryFrom<&[(&str, &str, &str)]> for Zone {
+pub type ZoneEntries<'a> = &'a [(&'a str, &'a str, &'a str)];
+
+impl<'a> TryFrom<ZoneEntries<'a>> for Zone {
     type Error = failure::Error;
 
-    fn try_from(entries: &[(&str, &str, &str)]) -> Result<Self, Self::Error> {
+    fn try_from(entries: ZoneEntries) -> Result<Self, Self::Error> {
         Ok(Zone(
             entries
                 .iter()
@@ -69,31 +88,29 @@ impl TryFrom<&[(&str, &str, &str)]> for Zone {
     }
 }
 
-#[derive(Clone)]
+#[derive(Clone, Default)]
 pub struct Open {
-    servers: HashMap<SocketAddr, Arc<Mutex<Server>>>,
+    servers: HashMap<SocketAddr, Handle<Server>>,
 }
 
 impl Open {
-    pub fn new<I, T>(servers: I) -> Result<Self, T::Error>
+    pub fn add_server<T>(&mut self, addr: SocketAddr, zone: T) -> Result<Handle<Server>, T::Error>
     where
-        I: IntoIterator<Item = (SocketAddr, T)>,
         T: TryInto<Zone>,
     {
-        Ok(Open {
-            servers: servers
-                .into_iter()
-                .map(|(addr, records)| {
-                    Ok((
-                        addr,
-                        Arc::new(Mutex::new(Server {
-                            zone: records.try_into()?,
-                            query_log: Default::default(),
-                        })),
-                    ))
-                })
-                .collect::<Result<_, _>>()?,
-        })
+        let server = Arc::new(Mutex::new(Server {
+            zone: Arc::new(Mutex::new(zone.try_into()?)),
+            query_log: Default::default(),
+        }));
+        self.servers.insert(addr, server.clone());
+        Ok(server)
+    }
+    pub fn add_shared(&mut self, addr: SocketAddr, zone: Handle<Zone>) {
+        let server = Arc::new(Mutex::new(Server {
+            zone,
+            query_log: Default::default(),
+        }));
+        self.servers.insert(addr, server.clone());
     }
 }
 
@@ -111,9 +128,15 @@ impl DnsOpen for Open {
 #[derive(Clone)]
 pub struct Client(Arc<Mutex<Server>>);
 
-struct Server {
-    zone: Zone,
+pub struct Server {
+    zone: Handle<Zone>,
     query_log: Vec<DnsRequest>,
+}
+
+impl Server {
+    pub fn zone(&self) -> Handle<Zone> {
+        Arc::clone(&self.zone)
+    }
 }
 
 impl DnsHandle for Client {
@@ -123,12 +146,25 @@ impl DnsHandle for Client {
         let mut server = self.0.lock().unwrap();
         let request = request.into();
         server.query_log.push(request.clone());
-        let mut message = Message::new();
-        for query in request.queries() {
-            for record in server.zone.matches(query) {
-                message.add_answer(record);
+        match request.op_code() {
+            OpCode::Query => {
+                let mut message = Message::new();
+                let zone = server.zone.lock().unwrap();
+                for query in request.queries() {
+                    for record in zone.matches(query) {
+                        message.add_answer(record);
+                    }
+                }
+                future::ok(message.into())
             }
+            OpCode::Update => {
+                let mut zone = server.zone.lock().unwrap();
+                for update in request.updates() {
+                    zone.update(update);
+                }
+                future::ok(Message::new().into())
+            }
+            _ => unimplemented!(),
         }
-        future::ok(message.into())
     }
 }
