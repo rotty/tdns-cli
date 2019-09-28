@@ -70,7 +70,7 @@ pub enum Expectation {
 impl fmt::Display for Expectation {
     fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
         match self {
-            Expectation::Is(rset) => write!(f, "expected {}", rset),
+            Expectation::Is(rset) => write!(f, "expected {}", rset.data()),
             Expectation::Empty(rtype) => write!(f, "expected no {} records", rtype),
         }
     }
