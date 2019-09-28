@@ -146,20 +146,20 @@ where
     }
 
     fn perform_create(self: Self) -> impl Future<Item = (), Error = failure::Error> {
-        let this = self.clone();
+        let settings = self.settings.clone();
         self.perform_update(move |mut server| {
             server
-                .create(this.settings.get_rrset(), this.settings.zone.clone())
+                .create(settings.get_rrset(), settings.zone.clone())
                 .map_err(failure::Error::from)
                 .map(|_| ()) // TODO: probably should inspect response
         })
     }
 
     fn perform_delete(self: Self) -> impl Future<Item = (), Error = failure::Error> {
-        let this = self.clone();
+        let settings = self.settings.clone();
         self.perform_update(move |mut server| {
             server
-                .delete_by_rdata(this.settings.get_rrset(), this.settings.zone.clone())
+                .delete_by_rdata(settings.get_rrset(), settings.zone.clone())
                 .map_err(failure::Error::from)
                 .map(|_| ()) // TODO: probably should inspect response
         })
