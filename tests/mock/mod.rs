@@ -37,14 +37,12 @@ impl Zone {
         if update.dns_class() == rr::DNSClass::NONE {
             self.0
                 .retain(|r| r.record_type() != update.record_type() && r.name() != update.name());
-        } else {
-            if let Some(record) = self
-                .0
-                .iter_mut()
-                .find(|r| r.record_type() == update.record_type() && r.name() == update.name())
-            {
-                record.set_rdata(update.rdata().clone());
-            }
+        } else if let Some(record) = self
+            .0
+            .iter_mut()
+            .find(|r| r.record_type() == update.record_type() && r.name() == update.name())
+        {
+            record.set_rdata(update.rdata().clone());
         }
     }
 }
