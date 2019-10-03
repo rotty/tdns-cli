@@ -11,6 +11,7 @@ use trust_dns::rr;
 
 use tdns_update::{
     record::{RecordSet, RsData},
+    tsig,
     update::{Operation, Settings, Update},
     util, TcpOpen, UdpOpen,
 };
@@ -34,6 +35,9 @@ struct Opt {
     entry: rr::Name,
     /// Expected query response.
     rs_data: RsData,
+    /// TSIG key in NAME:ALGORITHM:BASE64-DATA notation.
+    #[structopt(long)]
+    key: Option<String>,
     /// Excluded IP address.
     #[structopt(long)]
     exclude: Option<IpAddr>,
@@ -83,6 +87,24 @@ impl TryFrom<Opt> for Settings {
                 (false, false) => Operation::None,
             }
         };
+        let tsig_key = opt
+            .key
+            .map(|s| {
+                let parts: Vec<_> = s.split(':').collect();
+                if parts.len() != 3 {
+                    return Err(format_err!(
+                        "expected three colon-separated parts, found {}",
+                        parts.len()
+                    ));
+                }
+                let (name, algo, data) = (parts[0], parts[1], parts[2]);
+                Ok((
+                    name.parse()?,
+                    tsig::Algorithm::from_name(&algo.parse()?)?,
+                    base64::decode(data)?,
+                ))
+            })
+            .transpose()?;
         Ok(Settings {
             resolver,
             rset: RecordSet::new(entry.clone(), opt.rs_data),
@@ -94,6 +116,7 @@ impl TryFrom<Opt> for Settings {
             verbose: opt.verbose,
             operation,
             monitor: !opt.no_wait,
+            tsig_key,
         })
     }
 }

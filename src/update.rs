@@ -21,7 +21,7 @@ use trust_dns::{
 
 use crate::{
     record::{RecordSet, RsData},
-    update_message, util, DnsOpen, RuntimeHandle,
+    tsig, update_message, util, DnsOpen, RuntimeHandle,
 };
 
 #[derive(Debug, Clone)]
@@ -36,6 +36,7 @@ pub struct Settings {
     pub exclude: Vec<IpAddr>,
     pub operation: Operation,
     pub monitor: bool,
+    pub tsig_key: Option<(rr::Name, tsig::Algorithm, Vec<u8>)>,
 }
 
 impl Default for Settings {
@@ -51,6 +52,7 @@ impl Default for Settings {
             exclude: Default::default(),
             operation: Operation::Create,
             monitor: true,
+            tsig_key: None,
         }
     }
 }
@@ -86,15 +88,18 @@ impl Settings {
         rrset
     }
 
-    pub fn get_update(&self) -> Option<Message> {
-        let message = match self.operation {
-            Operation::None => return None,
+    pub fn get_update(&self) -> Result<Option<Message>, tsig::Error> {
+        let mut message = match self.operation {
+            Operation::None => return Ok(None),
             Operation::Create => update_message::create(self.get_rrset(), self.zone.clone()),
             Operation::Delete => {
                 update_message::delete_by_rdata(self.get_rrset(), self.zone.clone())
             }
         };
-        Some(message)
+        if let Some((key_name, key_algo, key_data)) = &self.tsig_key {
+            tsig::add_signature(&mut message, key_name.clone(), *key_algo, key_data)?;
+        }
+        Ok(Some(message))
     }
 
     pub fn satisfied_by(&self, rrs: &[rr::Record]) -> bool {
@@ -156,8 +161,9 @@ where
 
     fn perform_update(mut self: Self) -> impl Future<Item = (), Error = failure::Error> {
         let message = match self.settings.get_update() {
-            Some(message) => message,
-            None => return Either::A(future::ok(())),
+            Ok(Some(message)) => message,
+            Ok(None) => return Either::A(future::ok(())),
+            Err(e) => return Either::A(future::err(e.into())),
         };
         let get_soa = self
             .recursor
