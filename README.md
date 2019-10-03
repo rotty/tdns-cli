@@ -1,6 +1,7 @@
 # tdns-update
 
-A dynamic DNS updater and update checker.
+A dynamic DNS updater and update checker, using the mechanism
+described in RFC 2136.
 
 Note that `tdns-update` is currently in its initial development phase,
 and hasn't even been deployed in earnest by its author. The usual
@@ -8,9 +9,9 @@ caveats apply. If you're still interested, read on for more
 information of what is currently working, and what is planned.
 
 `tdns-update` updates and/or monitors an entry in a DNS zone. The
-updating functionality is currently an _extremely_ limited subset of
-what the `nsupdate` utility from the ISC BIND provides, but providing
-both updates and monitoring in a single native executable is novel, at
+updating functionality is currently a very limited subset of what the
+`nsupdate` utility from the ISC BIND provides, but providing both
+updates and monitoring in a single native executable is novel, at
 least to the author's knowledge. There are doubtlessly numerous shell
 scripts around that provide similar functionality, with varying
 degrees of sophistication. `tdns-update` aims to its job correctly and
@@ -38,14 +39,30 @@ considered not doing the job properly:
 - [ ] Probe all addresses an `NS` entry resolves to.
 - [ ] IPv6 support; the code is largely agnostic of IP address family,
       but IPv6 support has not yet been actively worked on.
+- [X] Support for TSIG, which provides authenticated updates using a
+      shared secret.
+- [ ] Allow for the TSIG key to be provided in a file, to prevent
+      leakage via `ps` and shell history.
 
 # Planned features
 
 - [X] TCP support -- currently, only UDP-based DNS is supported.
-- [ ] Useful DNS Update functionality. Currently, the functionality is
-      very in a very limited proof-of-concept state.
-- [ ] A test suite that checks the application logic against a mocked
-      "DNS server".
+- [ ] Support more DNS update variants. The current functionality
+      should suffice to implement the letencrypt DNS-01 challenge
+      protocol, but is not yet sufficient for a general-purpose
+      tool. At least adding a record to an RRset and deleting all
+      RRsets for a DNS name are missing to cover the basics.
+- [ ] To become a viable replacement for `nsupdate`, a more elaborate
+      way for describing the update. similar to the `nsupdate`
+      "scripts" is needed; adapting the command-line interface is not
+      suitable for more complex update operations.
+- [ ] Once a mechanism for describing an update in some kind of DSL is
+      added, it should be quite easy to allow updating multiple zones
+      concurrently in a single run. This functionality is probably not
+      that useful in practice, but who knows...
+- [X] A test suite that checks the application logic against a mocked
+      "DNS server". This is implemented in basic form, but coverage is
+      currently quite limited.
 
 ## Installation
 
