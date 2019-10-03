@@ -14,14 +14,14 @@ use futures::{
 use tokio::{prelude::*, timer::Delay};
 use trust_dns::{
     client::ClientHandle,
-    op::{update_message, DnsResponse, Message},
+    op::{DnsResponse, Message},
     proto::xfer::DnsHandle,
     rr::{self, Record},
 };
 
 use crate::{
     record::{RecordSet, RsData},
-    util, DnsOpen, RuntimeHandle,
+    update_message, util, DnsOpen, RuntimeHandle,
 };
 
 #[derive(Debug, Clone)]

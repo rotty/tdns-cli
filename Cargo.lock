@@ -802,6 +802,7 @@ version = "0.0.2"
 dependencies = [
  "failure 0.1.5 (registry+https://github.com/rust-lang/crates.io-index)",
  "futures 0.1.29 (registry+https://github.com/rust-lang/crates.io-index)",
+ "rand 0.7.2 (registry+https://github.com/rust-lang/crates.io-index)",
  "resolv-conf 0.6.2 (registry+https://github.com/rust-lang/crates.io-index)",
  "structopt 0.3.2 (registry+https://github.com/rust-lang/crates.io-index)",
  "tokio 0.1.22 (registry+https://github.com/rust-lang/crates.io-index)",
