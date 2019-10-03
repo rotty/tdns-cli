@@ -14,7 +14,8 @@ use futures::{
 use tokio::{prelude::*, timer::Delay};
 use trust_dns::{
     client::ClientHandle,
-    op::DnsResponse,
+    op::{update_message, DnsResponse, Message},
+    proto::xfer::DnsHandle,
     rr::{self, Record},
 };
 
@@ -84,6 +85,18 @@ impl Settings {
         }
         rrset
     }
+
+    pub fn get_update(&self) -> Option<Message> {
+        let message = match self.operation {
+            Operation::None => return None,
+            Operation::Create => update_message::create(self.get_rrset(), self.zone.clone()),
+            Operation::Delete => {
+                update_message::delete_by_rdata(self.get_rrset(), self.zone.clone())
+            }
+        };
+        Some(message)
+    }
+
     pub fn satisfied_by(&self, rrs: &[rr::Record]) -> bool {
         match self.operation {
             Operation::None | Operation::Create => {
@@ -96,6 +109,7 @@ impl Settings {
             Operation::Delete => rrs.is_empty(),
         }
     }
+
     pub fn expectation(&self) -> Expectation {
         match self.operation {
             Operation::None | Operation::Create => Expectation::Is(self.rset.clone()),
@@ -131,12 +145,7 @@ where
     }
 
     pub fn run(&self) -> AppFuture {
-        let this = self.clone();
-        let op = match self.settings.operation {
-            Operation::None => Box::new(future::ok(())) as AppFuture,
-            Operation::Create => Box::new(this.perform_create()),
-            Operation::Delete => Box::new(this.perform_delete()),
-        };
+        let op = self.clone().perform_update();
         let this = self.clone();
         if self.settings.monitor {
             Box::new(op.and_then(|_| this.wait_for_update()))
@@ -145,34 +154,11 @@ where
         }
     }
 
-    fn perform_create(self: Self) -> impl Future<Item = (), Error = failure::Error> {
-        let settings = self.settings.clone();
-        self.perform_update(move |mut server| {
-            server
-                .create(settings.get_rrset(), settings.zone.clone())
-                .map_err(failure::Error::from)
-                .map(|_| ()) // TODO: probably should inspect response
-        })
-    }
-
-    fn perform_delete(self: Self) -> impl Future<Item = (), Error = failure::Error> {
-        let settings = self.settings.clone();
-        self.perform_update(move |mut server| {
-            server
-                .delete_by_rdata(settings.get_rrset(), settings.zone.clone())
-                .map_err(failure::Error::from)
-                .map(|_| ()) // TODO: probably should inspect response
-        })
-    }
-
-    fn perform_update<F, R>(
-        mut self: Self,
-        update: F,
-    ) -> impl Future<Item = (), Error = failure::Error>
-    where
-        F: FnOnce(D::Client) -> R,
-        R: Future<Item = (), Error = failure::Error>,
-    {
+    fn perform_update(mut self: Self) -> impl Future<Item = (), Error = failure::Error> {
+        let message = match self.settings.get_update() {
+            Some(message) => message,
+            None => return Either::A(future::ok(())),
+        };
         let get_soa = self
             .recursor
             .query(
@@ -200,14 +186,15 @@ where
             })
         };
         let mut this = self.clone();
-        get_master
+        let update = get_master
             .and_then(move |master| {
-                let server = this
+                let mut server = this
                     .dns
                     .open(this.runtime.clone(), SocketAddr::new(master, 53));
-                update(server)
+                server.send(message).map_err(Into::into)
             })
-            .map(|_| ()) // TODO: probably should check response
+            .map(|_| ()); // TODO: probably should check response
+        Either::B(update)
     }
 
     fn wait_for_update(self: Self) -> impl Future<Item = (), Error = failure::Error> {
