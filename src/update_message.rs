@@ -1,6 +1,6 @@
 use trust_dns::{
     op::{Message, MessageType, OpCode, Query, UpdateMessage},
-    rr::{DNSClass, Name, Record, RecordSet, RecordType},
+    rr::{rdata::NULL, DNSClass, Name, RData, Record, RecordSet, RecordType},
 };
 
 // This code is taken from `update_message.rs` in the `trust_dns` crate, and
@@ -54,6 +54,35 @@ pub fn delete_by_rdata(mut rrset: RecordSet, zone_origin: Name) -> Message {
     // the TTL should be 0
     rrset.set_ttl(0);
     message.add_updates(rrset);
+
+    message
+}
+
+pub fn delete_rrset(mut record: Record, zone_origin: Name) -> Message {
+    assert!(zone_origin.zone_of(record.name()));
+
+    // for updates, the query section is used for the zone
+    let mut zone: Query = Query::new();
+    zone.set_name(zone_origin)
+        .set_query_class(record.dns_class())
+        .set_query_type(RecordType::SOA);
+
+    // build the message
+    let mut message: Message = Message::new();
+    message
+        .set_id(rand::random())
+        .set_message_type(MessageType::Query)
+        .set_op_code(OpCode::Update)
+        .set_recursion_desired(false);
+    message.add_zone(zone);
+
+    // the class must be none for an rrset delete
+    record.set_dns_class(DNSClass::ANY);
+    // the TTL should be 0
+    record.set_ttl(0);
+    // the rdata must be null to delete all rrsets
+    record.set_rdata(RData::NULL(NULL::new()));
+    message.add_update(record);
 
     message
 }

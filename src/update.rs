@@ -89,11 +89,15 @@ impl Settings {
     }
 
     pub fn get_update(&self) -> Result<Option<Message>, tsig::Error> {
+        let rrset = self.get_rrset();
         let mut message = match self.operation {
             Operation::None => return Ok(None),
-            Operation::Create => update_message::create(self.get_rrset(), self.zone.clone()),
-            Operation::Delete => {
-                update_message::delete_by_rdata(self.get_rrset(), self.zone.clone())
+            Operation::Create => update_message::create(rrset, self.zone.clone()),
+            Operation::Delete => if rrset.is_empty() {
+                let record = rr::Record::with(rrset.name().clone(), rrset.record_type(), 0);
+                update_message::delete_rrset(record, self.zone.clone())
+            } else {
+                update_message::delete_by_rdata(rrset, self.zone.clone())
             }
         };
         if let Some((key_name, key_algo, key_data)) = &self.tsig_key {
