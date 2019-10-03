@@ -1,12 +1,12 @@
 [package]
 name = "tdns-update"
-description = "Dynamic DNS updater"
+description = "Dynamic DNS updater (RFC 2136)"
 categories = ["command-line-utilities", "network-programming"]
 keywords = ["dns", "update", "dynamic", "nsupdate"]
 repository = "https://github.com/rotty/tdns-update"
 homepage = "https://github.com/rotty/tdns-update"
 readme = "README.md"
-version = "0.0.2"
+version = "0.0.3"
 authors = ["Andreas Rottmann <a.rottmann@gmx.at>"]
 license = "GPL-3.0-or-later"
 edition = "2018"
