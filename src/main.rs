@@ -50,6 +50,8 @@ struct Opt {
     /// Delete matching records.
     #[structopt(long)]
     delete: bool,
+    #[structopt(long)]
+    append: bool,
     /// Create the specified records.
     ///
     /// Ensures that no records for the added types exist.
@@ -75,27 +77,35 @@ impl Opt {
             .or_else(util::get_system_resolver)
             .ok_or_else(|| format_err!("could not obtain resolver address from operating system"))
     }
+
+    fn get_rset(&self) -> Result<RecordSet, failure::Error> {
+        let rs_data = self
+            .rs_data
+            .clone()
+            .ok_or_else(|| format_err!("Missing RS-DATA argument"))?;
+        Ok(RecordSet::new(self.entry.clone(), rs_data))
+    }
+
     fn to_update(&self) -> Result<Option<Update>, failure::Error> {
         let zone = self.zone.clone().unwrap_or_else(|| self.entry.base_name());
         if self.no_op {
             return Ok(None);
         }
-        let operation = match (self.create, self.delete) {
-            (true, true) => return Err(format_err!("Conflicting operations specified")),
-            (true, false) => {
-                let rs_data = self
-                    .rs_data
-                    .clone()
-                    .ok_or_else(|| format_err!("--create requires an RS-DATA argument"))?;
-                Operation::Create(RecordSet::new(self.entry.clone(), rs_data))
-            }
-            (false, true) => match &self.rs_data {
-                Some(rs_data) => {
-                    Operation::Delete(RecordSet::new(self.entry.clone(), rs_data.clone()))
-                }
-                None => Operation::DeleteAll(self.entry.clone()),
+        let op_flags = &[self.create, self.delete, self.append];
+        let operation = match op_flags.iter().filter(|&&flag| flag).count() {
+            0 => return Ok(None),
+            1 => match op_flags.iter().position(|flag| *flag).unwrap() {
+                0 => Operation::Create(self.get_rset()?),
+                1 => match &self.rs_data {
+                    Some(rs_data) => {
+                        Operation::Delete(RecordSet::new(self.entry.clone(), rs_data.clone()))
+                    }
+                    None => Operation::DeleteAll(self.entry.clone()),
+                },
+                2 => Operation::Append(self.get_rset()?),
+                _ => unreachable!(),
             },
-            (false, false) => return Ok(None),
+            _ => return Err(format_err!("Conflicting operations specified")),
         };
         let tsig_key = self
             .key

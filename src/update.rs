@@ -35,6 +35,7 @@ impl Update {
     pub fn get_update(&self) -> Result<Message, tsig::Error> {
         let mut message = match &self.operation {
             Operation::Create(rset) => update_message::create(rset.to_rrset(), self.zone.clone()),
+            Operation::Append(rset) => update_message::append(rset.to_rrset(), self.zone.clone(), false),
             Operation::Delete(rset) => {
                 if rset.is_empty() {
                     let record = rr::Record::with(rset.name().clone(), rset.record_type(), 0);
@@ -74,6 +75,7 @@ impl Monitor {
 #[derive(Debug, Clone, Eq, PartialEq)]
 pub enum Operation {
     Create(RecordSet),
+    Append(RecordSet),
     Delete(RecordSet),
     DeleteAll(rr::Name),
 }

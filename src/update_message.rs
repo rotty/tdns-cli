@@ -31,6 +31,35 @@ pub fn create(rrset: RecordSet, zone_origin: Name) -> Message {
     message
 }
 
+pub fn append(rrset: RecordSet, zone_origin: Name, must_exist: bool) -> Message {
+    assert!(zone_origin.zone_of(rrset.name()));
+
+    // for updates, the query section is used for the zone
+    let mut zone: Query = Query::new();
+    zone.set_name(zone_origin)
+        .set_query_class(rrset.dns_class())
+        .set_query_type(RecordType::SOA);
+
+    // build the message
+    let mut message: Message = Message::new();
+    message
+        .set_id(rand::random())
+        .set_message_type(MessageType::Query)
+        .set_op_code(OpCode::Update)
+        .set_recursion_desired(false);
+    message.add_zone(zone);
+
+    if must_exist {
+        let mut prerequisite = Record::with(rrset.name().clone(), rrset.record_type(), 0);
+        prerequisite.set_dns_class(DNSClass::ANY);
+        message.add_pre_requisite(prerequisite);
+    }
+
+    message.add_updates(rrset);
+
+    message
+}
+
 pub fn delete_by_rdata(mut rrset: RecordSet, zone_origin: Name) -> Message {
     assert!(zone_origin.zone_of(rrset.name()));
 
