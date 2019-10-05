@@ -65,11 +65,13 @@ impl RecordSet {
 
     pub fn contains(&self, entry: &rr::RData) -> bool {
         match (&self.data, entry) {
-            (RsData::TXT(txts), rr::RData::TXT(txt)) => if let Ok(txt) = txt_string(txt) {
-                txts.contains(&txt)
-            } else {
-                false
-            },
+            (RsData::TXT(txts), rr::RData::TXT(txt)) => {
+                if let Ok(txt) = txt_string(txt) {
+                    txts.contains(&txt)
+                } else {
+                    false
+                }
+            }
             (RsData::A(addrs), rr::RData::A(addr)) => addrs.contains(addr),
             (RsData::AAAA(addrs), rr::RData::AAAA(addr)) => addrs.contains(addr),
             _ => false,

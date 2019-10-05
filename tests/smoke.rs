@@ -202,11 +202,6 @@ fn test_delete() {
         )),
     )
     .unwrap();
-    let monitor = monitor_update(
-        runtime.handle(),
-        dns,
-        resolver,
-        monitor_settings("A"),
-    );
+    let monitor = monitor_update(runtime.handle(), dns, resolver, monitor_settings("A"));
     runtime.block_on(update.and_then(|_| monitor)).unwrap();
 }
