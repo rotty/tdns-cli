@@ -86,11 +86,7 @@ impl Opt {
         Ok(RecordSet::new(self.entry.clone(), rs_data))
     }
 
-    fn to_update(&self) -> Result<Option<Update>, failure::Error> {
-        let zone = self.zone.clone().unwrap_or_else(|| self.entry.base_name());
-        if self.no_op {
-            return Ok(None);
-        }
+    fn get_operation(&self) -> Result<Option<Operation>, failure::Error> {
         let op_flags = &[self.create, self.delete, self.append];
         let operation = match op_flags.iter().filter(|&&flag| flag).count() {
             0 => return Ok(None),
@@ -106,6 +102,18 @@ impl Opt {
                 _ => unreachable!(),
             },
             _ => return Err(format_err!("Conflicting operations specified")),
+        };
+        Ok(Some(operation))
+    }
+
+    fn to_update(&self) -> Result<Option<Update>, failure::Error> {
+        let zone = self.zone.clone().unwrap_or_else(|| self.entry.base_name());
+        if self.no_op {
+            return Ok(None);
+        }
+        let operation = match self.get_operation()? {
+            Some(operation) => operation,
+            None => return Ok(None),
         };
         let tsig_key = self
             .key
@@ -141,18 +149,12 @@ impl Opt {
         Ok(Some(Monitor {
             zone,
             entry: self.entry.clone(),
-            expectation: if self.delete {
-                if let Some(rs_data) = &self.rs_data {
-                    Expectation::Empty(rs_data.record_type())
-                } else {
-                    Expectation::Empty(rr::RecordType::ANY)
-                }
-            } else {
-                let rs_data = self
-                    .rs_data
-                    .clone()
-                    .ok_or_else(|| format_err!("monitoring requires a RS-DATA argument"))?;
-                Expectation::Is(RecordSet::new(self.entry.clone(), rs_data.clone()))
+            expectation: match self.get_operation()? {
+                None => Expectation::Is(self.get_rset()?),
+                Some(Operation::Create(rset)) => Expectation::Is(rset),
+                Some(Operation::Append(rset)) => Expectation::Contains(rset),
+                Some(Operation::Delete(rset)) => Expectation::NotAny(rset),
+                Some(Operation::DeleteAll(_)) => Expectation::Empty(rr::RecordType::ANY),
             },
             exclude: self.exclude.into_iter().collect(),
             interval: Duration::from_secs(self.interval.unwrap_or(1)),

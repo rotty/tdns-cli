@@ -93,13 +93,17 @@ impl Operation {
 #[derive(Debug, Clone)]
 pub enum Expectation {
     Is(RecordSet),
+    Contains(RecordSet),
     Empty(rr::RecordType),
+    NotAny(RecordSet),
 }
 
 impl Expectation {
     pub fn record_type(&self) -> rr::RecordType {
         match self {
             Expectation::Is(rset) => rset.record_type(),
+            Expectation::Contains(rset) => rset.record_type(),
+            Expectation::NotAny(rset) => rset.record_type(),
             Expectation::Empty(rtype) => *rtype,
         }
     }
@@ -113,7 +117,21 @@ impl Expectation {
                 };
                 rset == *other
             }
+            Expectation::Contains(other) => {
+                let rset = match RecordSet::try_from(rrs) {
+                    Err(_) => return false,
+                    Ok(rs) => rs,
+                };
+                other.is_subset(&rset)
+            }
             Expectation::Empty(_) => rrs.is_empty(),
+            Expectation::NotAny(other) => {
+                let rset = match RecordSet::try_from(rrs) {
+                    Err(_) => return false,
+                    Ok(rs) => rs,
+                };
+                !other.iter_data().any(|r| rset.contains(&r))
+            }
         }
     }
 }
@@ -122,7 +140,9 @@ impl fmt::Display for Expectation {
     fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
         match self {
             Expectation::Is(rset) => write!(f, "expected {}", rset.data()),
+            Expectation::Contains(rset) => write!(f, "expected at least {} records", rset.data()),
             Expectation::Empty(rtype) => write!(f, "expected no {} records", rtype),
+            Expectation::NotAny(rset) => write!(f, "expected none of {}", rset),
         }
     }
 }

@@ -63,11 +63,37 @@ impl RecordSet {
         RsDataIter(inner)
     }
 
+    pub fn contains(&self, entry: &rr::RData) -> bool {
+        match (&self.data, entry) {
+            (RsData::TXT(txts), rr::RData::TXT(txt)) => if let Ok(txt) = txt_string(txt) {
+                txts.contains(&txt)
+            } else {
+                false
+            },
+            (RsData::A(addrs), rr::RData::A(addr)) => addrs.contains(addr),
+            (RsData::AAAA(addrs), rr::RData::AAAA(addr)) => addrs.contains(addr),
+            _ => false,
+        }
+    }
+
     pub fn is_empty(&self) -> bool {
         match &self.data {
             RsData::TXT(txts) => txts.is_empty(),
             RsData::A(addrs) => addrs.is_empty(),
             RsData::AAAA(addrs) => addrs.is_empty(),
+        }
+    }
+
+    pub fn is_subset(&self, other: &RecordSet) -> bool {
+        use RsData::*;
+        if self.name() != other.name() {
+            return false;
+        }
+        match (&self.data, &other.data) {
+            (TXT(txts), TXT(other_txts)) => txts.is_subset(other_txts),
+            (A(addrs), A(other_addrs)) => addrs.is_subset(other_addrs),
+            (AAAA(addrs), AAAA(other_addrs)) => addrs.is_subset(other_addrs),
+            _ => false,
         }
     }
 }
@@ -242,19 +268,20 @@ impl From<&rr::Record> for RsKey {
     }
 }
 
+fn txt_string(txt: &rdata::TXT) -> Result<String, TryFromRecordsError> {
+    let data = txt.txt_data();
+    if data.len() != 1 {
+        return Err(TryFromRecordsError::UnsupportedTxtValue);
+    }
+    str::from_utf8(&data[0])
+        .map(Into::into)
+        .map_err(TryFromRecordsError::Utf8)
+}
+
 impl TryFrom<&[rr::Record]> for RecordSet {
     type Error = TryFromRecordsError;
 
     fn try_from(rrs: &[rr::Record]) -> Result<Self, Self::Error> {
-        fn txt_string(txt: &rdata::TXT) -> Result<String, TryFromRecordsError> {
-            let data = txt.txt_data();
-            if data.len() != 1 {
-                return Err(TryFromRecordsError::UnsupportedTxtValue);
-            }
-            str::from_utf8(&data[0])
-                .map(Into::into)
-                .map_err(TryFromRecordsError::Utf8)
-        }
         let keys: BTreeSet<RsKey> = rrs.iter().map(Into::into).collect();
         match keys.len() {
             0 => Err(TryFromRecordsError::Empty),
