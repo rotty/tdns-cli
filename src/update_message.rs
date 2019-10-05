@@ -86,3 +86,34 @@ pub fn delete_rrset(mut record: Record, zone_origin: Name) -> Message {
 
     message
 }
+
+pub fn delete_all(name_of_records: Name, zone_origin: Name, dns_class: DNSClass) -> Message {
+    assert!(zone_origin.zone_of(&name_of_records));
+
+    // for updates, the query section is used for the zone
+    let mut zone: Query = Query::new();
+    zone.set_name(zone_origin)
+        .set_query_class(dns_class)
+        .set_query_type(RecordType::SOA);
+
+    // build the message
+    let mut message: Message = Message::new();
+    message
+        .set_id(rand::random())
+        .set_message_type(MessageType::Query)
+        .set_op_code(OpCode::Update)
+        .set_recursion_desired(false);
+    message.add_zone(zone);
+
+    // the TTL should be 0
+    // the rdata must be null to delete all rrsets
+    // the record type must be any
+    let mut record = Record::with(name_of_records, RecordType::ANY, 0);
+
+    // the class must be none for an rrset delete
+    record.set_dns_class(DNSClass::ANY);
+
+    message.add_update(record);
+
+    message
+}

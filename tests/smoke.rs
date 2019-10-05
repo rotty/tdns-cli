@@ -3,7 +3,8 @@ use std::time::{Duration, Instant};
 use futures::{future, prelude::*};
 use tdns_update::{
     record::RecordSet,
-    update::{Operation, Settings, Update},
+    update::{monitor_update, perform_update, Expectation, Monitor, Operation, Update},
+    DnsOpen,
 };
 use tokio::{runtime::current_thread::Runtime, timer::Delay};
 use trust_dns::rr;
@@ -13,20 +14,31 @@ use mock::{parse_rdata, ZoneEntries};
 
 const TIMEOUT: Duration = Duration::from_millis(10);
 
-fn test_settings(operation: Operation, monitor: bool, expected: &str) -> Settings {
-    Settings {
+fn monitor_settings(expected: &str) -> Monitor {
+    let rset = RecordSet::new(
+        "foo.example.org".parse().unwrap(),
+        expected.parse().unwrap(),
+    );
+    Monitor {
         zone: "example.org".parse().unwrap(),
         entry: "foo.example.org".parse().unwrap(),
-        rset: RecordSet::new(
-            "foo.example.org".parse().unwrap(),
-            expected.parse().unwrap(),
-        ),
+        expectation: if rset.is_empty() {
+            Expectation::Empty(rset.record_type())
+        } else {
+            Expectation::Is(rset)
+        },
+        exclude: Default::default(),
         interval: TIMEOUT / 100,
         timeout: TIMEOUT,
         verbose: true,
+    }
+}
+
+fn update_settings(operation: Operation) -> Update {
+    Update {
+        zone: "example.org".parse().unwrap(),
         operation,
-        monitor,
-        ..Default::default()
+        tsig_key: None,
     }
 }
 
@@ -87,61 +99,75 @@ fn mock_dns_independent(master_data: ZoneEntries) -> (mock::Open, mock::Handle<m
 #[test]
 fn test_monitor_match() {
     let mut runtime = Runtime::new().unwrap();
-    let (dns, _) = mock_dns_shared(&[("foo.example.org", "A", "192.168.1.1")]);
-    let update = Update::new(
+    let (mut dns, _) = mock_dns_shared(&[("foo.example.org", "A", "192.168.1.1")]);
+    let resolver = dns.open(runtime.handle(), "127.0.0.1:53".parse().unwrap());
+    let monitor = monitor_update(
         runtime.handle(),
         dns,
-        test_settings(Operation::None, true, "A:192.168.1.1"),
-    )
-    .unwrap()
-    .run();
-    runtime.block_on(update).unwrap();
+        resolver,
+        monitor_settings("A:192.168.1.1"),
+    );
+    runtime.block_on(monitor).unwrap();
 }
 
 #[test]
 fn test_monitor_mismatch() {
     let mut runtime = Runtime::new().unwrap();
-    let dns = mock_dns_fixed(
+    let mut dns = mock_dns_fixed(
         &[("foo.example.org", "A", "192.168.1.1")],
         &[("foo.example.org", "A", "192.168.1.1")],
         &[("foo.example.org", "A", "192.168.1.2")],
     );
-    let update = Update::new(
+    let resolver = dns.open(runtime.handle(), "127.0.0.1:53".parse().unwrap());
+    let monitor = monitor_update(
         runtime.handle(),
         dns,
-        test_settings(Operation::None, true, "A:192.168.1.1"),
-    )
-    .unwrap()
-    .run();
-    let result = runtime.block_on(update);
+        resolver,
+        monitor_settings("A:192.168.1.1"),
+    );
+    let result = runtime.block_on(monitor);
     assert!(result.is_err()); // TODO: check for timeout error, specifically
 }
 
 #[test]
 fn test_create_immediate() {
     let mut runtime = Runtime::new().unwrap();
-    let (dns, _) = mock_dns_shared(&[("foo.example.org", "A", "192.168.1.1")]);
-    let update = Update::new(
+    let (mut dns, _) = mock_dns_shared(&[("foo.example.org", "A", "192.168.1.1")]);
+    let resolver = dns.open(runtime.handle(), "127.0.0.1:53".parse().unwrap());
+    let update = perform_update(
+        runtime.handle(),
+        dns.clone(),
+        resolver.clone(),
+        update_settings(Operation::Create(RecordSet::new(
+            "foo.example.org".parse().unwrap(),
+            "A:192.168.1.2".parse().unwrap(),
+        ))),
+    )
+    .unwrap();
+    let monitor = monitor_update(
         runtime.handle(),
         dns,
-        test_settings(Operation::Create, true, "A:192.168.1.2"),
-    )
-    .unwrap()
-    .run();
-    runtime.block_on(update).unwrap();
+        resolver,
+        monitor_settings("A:192.168.1.2"),
+    );
+    runtime.block_on(update.and_then(|_| monitor)).unwrap();
 }
 
 #[test]
 fn test_create_delayed() {
     let mut runtime = Runtime::new().unwrap();
-    let (dns, zone) = mock_dns_independent(&[("foo.example.org", "A", "192.168.1.1")]);
-    let update = Update::new(
+    let (mut dns, zone) = mock_dns_independent(&[("foo.example.org", "A", "192.168.1.1")]);
+    let resolver = dns.open(runtime.handle(), "127.0.0.1:53".parse().unwrap());
+    let update = perform_update(
         runtime.handle(),
         dns,
-        test_settings(Operation::Create, true, "A:192.168.1.2"),
+        resolver,
+        update_settings(Operation::create(
+            "foo.example.org".parse().unwrap(),
+            "A:192.168.1.2".parse().unwrap(),
+        )),
     )
-    .unwrap()
-    .run();
+    .unwrap();
     let updated = rr::Record::from_rdata(
         "foo.example.org".parse().unwrap(),
         0,
@@ -154,20 +180,33 @@ fn test_create_delayed() {
         })
         .map_err(Into::into);
     runtime
-        .block_on(future::join_all(vec![update, Box::new(update_auth)]))
+        .block_on(future::join_all(vec![
+            Box::new(update) as Box<dyn Future<Item = (), Error = failure::Error>>,
+            Box::new(update_auth),
+        ]))
         .unwrap();
 }
 
 #[test]
 fn test_delete() {
     let mut runtime = Runtime::new().unwrap();
-    let (dns, _) = mock_dns_shared(&[("foo.example.org", "A", "192.168.1.1")]);
-    let update = Update::new(
+    let (mut dns, _) = mock_dns_shared(&[("foo.example.org", "A", "192.168.1.1")]);
+    let resolver = dns.open(runtime.handle(), "127.0.0.1:53".parse().unwrap());
+    let update = perform_update(
+        runtime.handle(),
+        dns.clone(),
+        resolver.clone(),
+        update_settings(Operation::delete(
+            "foo.example.org".parse().unwrap(),
+            "A:192.168.1.1".parse().unwrap(),
+        )),
+    )
+    .unwrap();
+    let monitor = monitor_update(
         runtime.handle(),
         dns,
-        test_settings(Operation::Delete, true, "A:192.168.1.1"),
-    )
-    .unwrap()
-    .run();
-    runtime.block_on(update).unwrap();
+        resolver,
+        monitor_settings("A"),
+    );
+    runtime.block_on(update.and_then(|_| monitor)).unwrap();
 }

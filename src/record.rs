@@ -30,16 +30,24 @@ impl RecordSet {
         }
     }
 
+    pub fn name(&self) -> &rr::Name {
+        &self.name
+    }
+
     pub fn dns_class(&self) -> rr::DNSClass {
         self.dns_class
     }
 
     pub fn record_type(&self) -> rr::RecordType {
-        match self.data {
-            RsData::TXT(_) => rr::RecordType::TXT,
-            RsData::A(_) => rr::RecordType::A,
-            RsData::AAAA(_) => rr::RecordType::AAAA,
+        self.data.record_type()
+    }
+
+    pub fn to_rrset(&self) -> rr::RecordSet {
+        let mut rrset = rr::RecordSet::new(&self.name, self.record_type(), 0);
+        for data in self.iter_data() {
+            rrset.add_rdata(data);
         }
+        rrset
     }
 
     pub fn data(&self) -> &RsData {
@@ -100,6 +108,16 @@ pub enum RsData {
     TXT(BTreeSet<String>), // TODO: simplified, only single value for now.
     A(BTreeSet<Ipv4Addr>),
     AAAA(BTreeSet<Ipv6Addr>),
+}
+
+impl RsData {
+    pub fn record_type(&self) -> rr::RecordType {
+        match self {
+            RsData::TXT(_) => rr::RecordType::TXT,
+            RsData::A(_) => rr::RecordType::A,
+            RsData::AAAA(_) => rr::RecordType::AAAA,
+        }
+    }
 }
 
 impl fmt::Display for RsData {

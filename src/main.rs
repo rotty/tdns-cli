@@ -1,10 +1,13 @@
 use std::{
-    convert::TryFrom,
     net::{IpAddr, SocketAddr},
     time::Duration,
 };
 
 use failure::format_err;
+use futures::{
+    future::{self, Either},
+    Future,
+};
 use structopt::StructOpt;
 use tokio::runtime::current_thread::Runtime;
 use trust_dns::rr;
@@ -12,8 +15,8 @@ use trust_dns::rr;
 use tdns_update::{
     record::{RecordSet, RsData},
     tsig,
-    update::{Operation, Settings, Update},
-    util, TcpOpen, UdpOpen,
+    update::{monitor_update, perform_update, Expectation, Monitor, Operation, Update},
+    util, DnsOpen, RuntimeHandle, TcpOpen, UdpOpen,
 };
 
 /// Wait for a DNS entry to obtain a specified state.
@@ -29,8 +32,8 @@ struct Opt {
     /// update.
     #[structopt(long)]
     timeout: Option<u64>,
-    /// Domain to monitor.
-    domain: rr::Name,
+    #[structopt(long)]
+    zone: Option<rr::Name>,
     /// Entry to monitor.
     entry: rr::Name,
     /// Expected query response.
@@ -66,29 +69,30 @@ struct Opt {
     tcp: bool,
 }
 
-impl TryFrom<Opt> for Settings {
-    type Error = failure::Error;
-
-    fn try_from(opt: Opt) -> Result<Self, Self::Error> {
-        let resolver = opt
-            .resolver
+impl Opt {
+    fn get_resolver_addr(&self) -> Result<SocketAddr, failure::Error> {
+        self.resolver
             .or_else(util::get_system_resolver)
-            .ok_or_else(|| {
-                format_err!("could not obtain resolver address from operating system")
-            })?;
-        let entry = opt.entry.append_name(&opt.domain);
-        let operation = if opt.no_op {
-            Operation::None
-        } else {
-            match (opt.create, opt.delete) {
-                (true, true) => return Err(format_err!("Conflicting operations specified")),
-                (true, false) => Operation::Create,
-                (false, true) => Operation::Delete,
-                (false, false) => Operation::None,
+            .ok_or_else(|| format_err!("could not obtain resolver address from operating system"))
+    }
+    fn to_update(&self) -> Result<Option<Update>, failure::Error> {
+        let zone = self.zone.clone().unwrap_or_else(|| self.entry.base_name());
+        if self.no_op {
+            return Ok(None);
+        }
+        let operation = match (self.create, self.delete) {
+            (true, true) => return Err(format_err!("Conflicting operations specified")),
+            (true, false) => {
+                Operation::Create(RecordSet::new(self.entry.clone(), self.rs_data.clone()))
             }
+            (false, true) => {
+                Operation::Delete(RecordSet::new(self.entry.clone(), self.rs_data.clone()))
+            }
+            (false, false) => return Ok(None),
         };
-        let tsig_key = opt
+        let tsig_key = self
             .key
+            .clone()
             .map(|s| {
                 let parts: Vec<_> = s.split(':').collect();
                 if parts.len() != 3 {
@@ -105,30 +109,62 @@ impl TryFrom<Opt> for Settings {
                 ))
             })
             .transpose()?;
-        Ok(Settings {
-            resolver,
-            rset: RecordSet::new(entry.clone(), opt.rs_data),
-            zone: opt.domain,
-            entry,
-            exclude: opt.exclude.into_iter().collect(),
-            interval: Duration::from_secs(opt.interval.unwrap_or(1)),
-            timeout: Duration::from_secs(opt.timeout.unwrap_or(60)),
-            verbose: opt.verbose,
+        Ok(Some(Update {
             operation,
-            monitor: !opt.no_wait,
+            zone,
             tsig_key,
-        })
+        }))
     }
+
+    fn to_monitor(&self) -> Result<Option<Monitor>, failure::Error> {
+        let zone = self.zone.clone().unwrap_or_else(|| self.entry.base_name());
+        if self.no_wait {
+            return Ok(None);
+        }
+        Ok(Some(Monitor {
+            zone,
+            entry: self.entry.clone(),
+            expectation: if self.delete {
+                Expectation::Empty(self.rs_data.record_type())
+            } else {
+                Expectation::Is(RecordSet::new(self.entry.clone(), self.rs_data.clone()))
+            },
+            exclude: self.exclude.into_iter().collect(),
+            interval: Duration::from_secs(self.interval.unwrap_or(1)),
+            timeout: Duration::from_secs(self.timeout.unwrap_or(60)),
+            verbose: self.verbose,
+        }))
+    }
+}
+
+fn run_with_dns<D: DnsOpen + 'static>(
+    runtime: RuntimeHandle,
+    mut dns: D,
+    opt: Opt,
+) -> Result<Box<dyn Future<Item = (), Error = failure::Error>>, failure::Error> {
+    let resolver = dns.open(runtime.clone(), opt.get_resolver_addr()?);
+    let maybe_update = match opt.to_update()? {
+        Some(update) => Either::A(perform_update(
+            runtime.clone(),
+            dns.clone(),
+            resolver.clone(),
+            update,
+        )?),
+        None => Either::B(future::ok(())),
+    };
+    let maybe_monitor = match opt.to_monitor()? {
+        Some(monitor) => Either::A(monitor_update(runtime, dns, resolver, monitor)),
+        None => Either::B(future::ok(())),
+    };
+    Ok(Box::new(maybe_update.and_then(|_| maybe_monitor)))
 }
 
 fn run(opt: Opt) -> Result<(), failure::Error> {
     let mut runtime = Runtime::new().unwrap();
-    let tcp = opt.tcp;
-    let settings = Settings::try_from(opt)?;
-    let app = if tcp {
-        Update::new(runtime.handle(), TcpOpen, settings)?.run()
+    let app = if opt.tcp {
+        run_with_dns(runtime.handle(), TcpOpen, opt)?
     } else {
-        Update::new(runtime.handle(), UdpOpen, settings)?.run()
+        run_with_dns(runtime.handle(), UdpOpen, opt)?
     };
     runtime.block_on(app).map(|_| ())
 }
