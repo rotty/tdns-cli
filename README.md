@@ -137,3 +137,44 @@ part of the hook script to deploy the letsencrypt challenge to DNS.
 [`trust-dns`]: https://github.com/bluejekyll/trust-dns
 [DNS-01 protocol]: https://letsencrypt.org/docs/challenge-types/
 [pandoc]: https://pandoc.org/
+
+# License
+
+Copyright © 2019 Andreas Rottmann
+
+This program is free software; you can redistribute it and/or modify
+it under the terms of the GNU General Public License as published by
+the Free Software Foundation; either version 3 of the License, or (at
+your option) any later version.
+
+This program is distributed in the hope that it will be useful, but
+*WITHOUT ANY WARRANTY*; without even the implied warranty of
+*MERCHANTABILITY* or *FITNESS FOR A PARTICULAR PURPOSE*. See the GNU
+General Public License for more details.
+
+You should have received a copy of the GNU General Public License
+along with this program; if not, see <https://www.gnu.org/licenses>.
+
+## Additional permission under GNU GPL version 3 section 7
+
+If you modify this Program, or any covered work, by linking or
+combining it with OpenSSL (or a modified version of that library),
+containing parts covered by the terms of OpenSSL License, the
+licensors of this Program grant you additional permission to convey
+the resulting work. Corresponding Source for a non-source form of such
+a combination shall include the source code for the parts of OpenSSL
+used as well as that of the covered work.
+
+# Contributions
+
+Unless explicitly indicated otherwise, any contribution intentionally
+submitted for inclusion in this crate:
+
+- Will be licensed under the GNU GPL version 3.0, or
+  later, with the additional permissions listed above.
+- The contributor additionally grants the crate maintainer the right
+  to re-license parts or all of the crate's code, including the
+  contribution, to the dual MIT/Apache-2.0 license. This is provision
+  is for the case that some part of the crate's code turns out to be
+  of general utility, such that it would benefit from being split out
+  and being given a more liberal, non-copyleft license.
