@@ -36,8 +36,8 @@ struct Opt {
     zone: Option<rr::Name>,
     /// Entry to monitor.
     entry: rr::Name,
-    /// Expected query response.
-    rs_data: RsData,
+    /// RRset to update and/or monitor.
+    rs_data: Option<RsData>,
     /// TSIG key in NAME:ALGORITHM:BASE64-DATA notation.
     #[structopt(long)]
     key: Option<String>,
@@ -83,11 +83,18 @@ impl Opt {
         let operation = match (self.create, self.delete) {
             (true, true) => return Err(format_err!("Conflicting operations specified")),
             (true, false) => {
-                Operation::Create(RecordSet::new(self.entry.clone(), self.rs_data.clone()))
+                let rs_data = self
+                    .rs_data
+                    .clone()
+                    .ok_or_else(|| format_err!("--create requires an RS-DATA argument"))?;
+                Operation::Create(RecordSet::new(self.entry.clone(), rs_data))
             }
-            (false, true) => {
-                Operation::Delete(RecordSet::new(self.entry.clone(), self.rs_data.clone()))
-            }
+            (false, true) => match &self.rs_data {
+                Some(rs_data) => {
+                    Operation::Delete(RecordSet::new(self.entry.clone(), rs_data.clone()))
+                }
+                None => Operation::DeleteAll(self.entry.clone()),
+            },
             (false, false) => return Ok(None),
         };
         let tsig_key = self
@@ -125,9 +132,17 @@ impl Opt {
             zone,
             entry: self.entry.clone(),
             expectation: if self.delete {
-                Expectation::Empty(self.rs_data.record_type())
+                if let Some(rs_data) = &self.rs_data {
+                    Expectation::Empty(rs_data.record_type())
+                } else {
+                    Expectation::Empty(rr::RecordType::ANY)
+                }
             } else {
-                Expectation::Is(RecordSet::new(self.entry.clone(), self.rs_data.clone()))
+                let rs_data = self
+                    .rs_data
+                    .clone()
+                    .ok_or_else(|| format_err!("monitoring requires a RS-DATA argument"))?;
+                Expectation::Is(RecordSet::new(self.entry.clone(), rs_data.clone()))
             },
             exclude: self.exclude.into_iter().collect(),
             interval: Duration::from_secs(self.interval.unwrap_or(1)),
