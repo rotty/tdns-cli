@@ -769,7 +769,7 @@ dependencies = [
 ]
 
 [[package]]
-name = "tdns-update"
+name = "tdns-cli"
 version = "0.0.4"
 dependencies = [
  "base64 0.10.1 (registry+https://github.com/rust-lang/crates.io-index)",

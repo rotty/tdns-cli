@@ -1,6 +1,6 @@
 % TDNS-UPDATE(1) tnds-update Manual
 % Andreas Rottmann
-% September, 2019
+% October, 2019
 
 # NAME
 
@@ -8,24 +8,24 @@ tnds-update -  DNS update client (RFC 2136)
 
 # SYNOPSIS
 
-__tdns-update__ [*options*] *dns-name* *rs-data*
+__tdns update__ [*options*] *dns-name* *rs-data*
 
 # DESCRIPTION
 
-__tdns-update__ is an alternative to the `nsupdate` utility which is
+__tdns update__ is an alternative to the `nsupdate` utility which is
 distributed as part of the ISC BIND suite. It is currently not as
 general as `nsupdate`, but provides the additional feature of
 (optionally) ensuring that the DNS update has propagated to all
 authoritative nameservers of a domain. This feature is helpful when
 implementing challenge-response protocols such as the DNS-01 variant
 of the letsencrypt ACME protocol, as it ensures that when
-__tdns-update__ exits successfully, any subsequent query to any of the
+__tdns update__ exits successfully, any subsequent query to any of the
 authoritative nameservers will see the updated records.
 
-Furthermore, `tnds-update` provides a command-line interface that
+Furthermore, __tnds update__ provides a command-line interface that
 intends to cover all basic use-cases, like creating, deleting and
 updating a DNS resource record set, while __nsupdate__ requires a
-simple "script". This should make using __tdns-update__ a bit more
+simple "script". This should make using __tdns update__ a bit more
 straightforward for these basic use-cases, compared to constructing a
 script on the fly and piping it into __nsupdate__.
 
@@ -33,7 +33,7 @@ script on the fly and piping it into __nsupdate__.
 
 ## Mode of operation
 
-__tdns-update__ allows combining a nameserver update (__\--create__,
+__tdns update__ allows combining a nameserver update (__\--create__,
 __\--delete__) with optional monitoring, i.e. waiting for the specified
 update to happen. If no update action is specified, monitoring will
 still happen, unless turned off with __\--no-wait__.
@@ -42,7 +42,7 @@ still happen, unless turned off with __\--no-wait__.
 :   Does not perform an update, but still monitors the zone's
     nameservers for the given data to appear. This is the default if no
     action is specified. If __\--no-op__ is combined with __\--no-wait__,
-    __tdns-update__ will behave like a heavyweight implementation of the
+    __tdns update__ will behave like a heavyweight implementation of the
     classic `true`(1) command.
 
 \--create
@@ -60,7 +60,7 @@ still happen, unless turned off with __\--no-wait__.
     specific type, a bare type may be used as *rs-data* argument.
 
 \--no-wait
-:   Per default, __tdns-update__ will monitor the authoritative
+:   Per default, __tdns update__ will monitor the authoritative
     nameservers of the updated zone and wait until the update is visible
     on all of them. With this option, __tnds-update__ terminates
     immediately after the update operation, not performing any
@@ -124,13 +124,13 @@ still happen, unless turned off with __\--no-wait__.
     monitored. This is useful for excluding the primary master, i.e.,
     the server the update requests are sent to from monitoring, for
     example if it is not reachable via its public IP address from the
-    machine __tdns-update__ is run on.
+    machine __tdns update__ is run on.
 
 \--tcp
 :   Use TCP for all DNS requests.
 
 \--verbose
-:   Increase verbosity. If enabled, __tdns-update__ will print
+:   Increase verbosity. If enabled, __tdns update__ will print
     informational messages during execution.
 
 # RECORD SET SYNTAX
@@ -139,9 +139,9 @@ A resource record set (RRset), as specified by RFC 2136, is a set of
 DNS resource records (RRs) that have the same name, class, and
 type. For instance, all `A` records for the DNS name `foo.example.org`
 form an RRset. In today's use of DNS, only class `IN` is in common
-use, so only that class is currently supported by __tdns-update__.
+use, so only that class is currently supported by __tdns update__.
 
-__tdns-update__ is currently restricted to a single RRset, with a
+__tdns update__ is currently restricted to a single RRset, with a
 specific type and name. The RRset data, including the RRset type, is
 given via the *rs-data* arguments. The general syntax for *rs-data* is
 uniform, although the syntax of the data portion is type-dependent;
@@ -169,8 +169,8 @@ The following types of RRsets are supported:
 The following will update `foo.example.org` with an IPv4 and IPv6
 address, deleting the old entries first:
 
-    tdns-update --delete --no-wait foo.example.org A
-    tdns-update --create foo.example.org A:10.1.2.3
+    tdns update --delete --no-wait foo.example.org A
+    tdns update --create foo.example.org A:10.1.2.3
     tnds-update --append foo.example.org AAAA:dead:beef::1234
 
 # BUGS
@@ -186,9 +186,9 @@ address, deleting the old entries first:
   - There is no support for quoting, so items containing commas (the
     item separator) cannot be represented.
 
-  A future version of __tdns-update__ should lift these restrictions.
+  A future version of __tdns update__ should lift these restrictions.
 
-- __tdns-update__ currently can only handle a small class of updates
+- __tdns update__ currently can only handle a small class of updates
   that are possible via __nsupdate__ scripts; it is planned to extend
   the command line interface to support more common operations, such
   as deleting the RRsets before creating them anew.

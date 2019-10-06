@@ -1,7 +1,7 @@
 use std::time::{Duration, Instant};
 
 use futures::{future, prelude::*};
-use tdns_update::{
+use tdns_cli::{
     record::RecordSet,
     update::{monitor_update, perform_update, Expectation, Monitor, Operation, Update},
     DnsOpen,

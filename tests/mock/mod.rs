@@ -18,7 +18,7 @@ use trust_dns::{
     },
 };
 
-use tdns_update::{DnsOpen, RuntimeHandle};
+use tdns_cli::{DnsOpen, RuntimeHandle};
 
 pub type Handle<T> = Arc<Mutex<T>>;
 

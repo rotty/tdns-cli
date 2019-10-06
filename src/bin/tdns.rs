@@ -15,16 +15,22 @@ use structopt::StructOpt;
 use tokio::runtime::current_thread::Runtime;
 use trust_dns::rr;
 
-use tdns_update::{
+use tdns_cli::{
     record::{RecordSet, RsData},
     tsig,
     update::{monitor_update, perform_update, Expectation, Monitor, Operation, Update},
     util, DnsOpen, RuntimeHandle, TcpOpen, UdpOpen,
 };
 
-/// Wait for a DNS entry to obtain a specified state.
+/// DNS client utilities
 #[derive(StructOpt)]
-struct Opt {
+enum Tdns {
+    /// Update a DNS entry
+    Update(UpdateOpt),
+}
+
+#[derive(StructOpt)]
+struct UpdateOpt {
     /// Specify the recusor to use, including the port number.
     ///
     /// If not specified, the first nameserver specified in `/etc/resolv.conf`
@@ -39,9 +45,9 @@ struct Opt {
     server: Option<util::SocketName>,
     #[structopt(long)]
     zone: Option<rr::Name>,
-    /// Entry to monitor.
+    /// Entry to update and/or monitor.
     entry: rr::Name,
-    /// RRset to update and/or monitor.
+    /// RRset for update and/or monitoring.
     rs_data: Option<RsData>,
     /// TSIG key in NAME:ALGORITHM:BASE64-DATA notation, or just NAME when used
     /// in combination with --key-file.
@@ -58,6 +64,7 @@ struct Opt {
     /// Delete matching records.
     #[structopt(long)]
     delete: bool,
+    /// Append records to the zone.
     #[structopt(long)]
     append: bool,
     /// Create the specified records.
@@ -79,7 +86,7 @@ struct Opt {
     tcp: bool,
 }
 
-impl Opt {
+impl UpdateOpt {
     fn get_resolver_addr(&self) -> Result<SocketAddr, failure::Error> {
         self.resolver
             .or_else(util::get_system_resolver)
@@ -228,10 +235,10 @@ fn read_key(path: &Path, key_name: Option<&rr::Name>) -> Result<tsig::Key, failu
     }
 }
 
-fn run_with_dns<D: DnsOpen + 'static>(
+fn run_update<D: DnsOpen + 'static>(
     runtime: RuntimeHandle,
     mut dns: D,
-    opt: Opt,
+    opt: UpdateOpt,
 ) -> Result<Box<dyn Future<Item = (), Error = failure::Error>>, failure::Error> {
     let resolver = dns.open(runtime.clone(), opt.get_resolver_addr()?);
     let maybe_update = match opt.to_update()? {
@@ -250,19 +257,23 @@ fn run_with_dns<D: DnsOpen + 'static>(
     Ok(Box::new(maybe_update.and_then(|_| maybe_monitor)))
 }
 
-fn run(opt: Opt) -> Result<(), failure::Error> {
+fn run(tdns: Tdns) -> Result<(), failure::Error> {
     let mut runtime = Runtime::new().unwrap();
-    let app = if opt.tcp {
-        run_with_dns(runtime.handle(), TcpOpen, opt)?
-    } else {
-        run_with_dns(runtime.handle(), UdpOpen, opt)?
+    let app = match tdns {
+        Tdns::Update(opt) => {
+            if opt.tcp {
+                run_update(runtime.handle(), TcpOpen, opt)?
+            } else {
+                run_update(runtime.handle(), UdpOpen, opt)?
+            }
+        }
     };
     runtime.block_on(app).map(|_| ())
 }
 
 fn main() {
-    let opt = Opt::from_args();
-    let rc = match run(opt) {
+    let tdns = Tdns::from_args();
+    let rc = match run(tdns) {
         Ok(_) => 0,
         Err(e) => {
             eprintln!("error: {}", e);

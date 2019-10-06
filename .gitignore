@@ -2,11 +2,12 @@
 /target
 **/*.rs.bk
 
-# Generated man page. This is built when using the included Makefile.
+# Generated man page. These are built when using the included Makefile.
+/tdns.1
+/tdns.1.html
 /tdns-update.1
 /tdns-update.1.html
 
-# `cargo-tarpaulin --out Xml` output, and the HTML rendering by
-# pycobertura.
+# Produced by the `coverage` Makefile target.
 /cobertura.xml
 /cobertura.html
