@@ -21,12 +21,15 @@ use trust_dns::{
 
 use crate::{
     record::{RecordSet, RsData},
-    tsig, update_message, util, DnsOpen, RuntimeHandle,
+    tsig, update_message,
+    util::{self, SocketName},
+    DnsOpen, RuntimeHandle,
 };
 
 #[derive(Debug, Clone)]
 pub struct Update {
     pub zone: rr::Name,
+    pub server: Option<SocketName>,
     pub operation: Operation,
     pub tsig_key: Option<tsig::Key>,
 }
@@ -159,30 +162,36 @@ where
     D: DnsOpen,
 {
     let message = options.get_update()?;
-    let get_soa = resolver
-        .query(options.zone.clone(), rr::DNSClass::IN, rr::RecordType::SOA)
-        .map_err(failure::Error::from);
-    let get_master = {
+    let get_master = if let Some(sockname) = options.server {
+        Box::new(sockname.resolve(resolver, 53))
+            as Box<dyn Future<Item = SocketAddr, Error = failure::Error>>
+    } else {
+        let get_soa = resolver
+            .query(options.zone.clone(), rr::DNSClass::IN, rr::RecordType::SOA)
+            .map_err(failure::Error::from);
         let settings = options.clone();
         let resolver = resolver.clone();
-        get_soa.and_then(move |response| {
+        let resolve = get_soa.and_then(move |response| {
             if let Some(soa) = response
                 .answers()
                 .first()
                 .and_then(|rr| rr.rdata().as_soa())
             {
-                Either::A(util::resolve_ip(resolver, soa.mname().clone()))
+                Either::A(
+                    util::SocketName::HostName(soa.mname().clone(), None).resolve(resolver, 53),
+                )
             } else {
                 Either::B(future::err(format_err!(
                     "SOA record for {} not found",
                     settings.zone
                 )))
             }
-        })
+        });
+        Box::new(resolve)
     };
     let update = get_master
         .and_then(move |master| {
-            let mut server = dns.open(runtime.clone(), SocketAddr::new(master, 53));
+            let mut server = dns.open(runtime.clone(), master);
             server.send(message).map_err(Into::into)
         })
         .map(|_| ()); // TODO: probably should check response

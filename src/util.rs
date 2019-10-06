@@ -1,16 +1,95 @@
 use std::{
-    fs,
+    fmt, fs,
     net::{IpAddr, SocketAddr},
+    num::ParseIntError,
+    str::FromStr,
 };
 
 use failure::format_err;
-use futures::{future, Future};
+use futures::{
+    future::{self, Either},
+    Future,
+};
 use trust_dns::{
     client::ClientHandle,
     op::DnsResponse,
-    proto::op::query::Query,
+    proto::{error::ProtoError, op::query::Query, xfer::DnsHandle},
     rr::{self, Record, RecordType},
 };
+
+/// A potential unresolved host name, with an optional port number.
+#[derive(Debug, Clone)]
+pub enum SocketName {
+    HostName(rr::Name, Option<u16>),
+    SocketAddr(SocketAddr),
+    IpAddr(IpAddr),
+}
+
+impl SocketName {
+    pub fn resolve(
+        &self,
+        resolver: impl DnsHandle,
+        default_port: u16,
+    ) -> impl Future<Item = SocketAddr, Error = failure::Error> {
+        match self {
+            SocketName::HostName(name, port) => {
+                let port = port.unwrap_or(default_port);
+                Either::A(
+                    resolve_ip(resolver, name.clone()).map(move |ip| SocketAddr::new(ip, port)),
+                )
+            }
+            SocketName::IpAddr(addr) => Either::B(future::ok(SocketAddr::new(*addr, default_port))),
+            SocketName::SocketAddr(addr) => Either::B(future::ok(*addr)),
+        }
+    }
+}
+
+impl FromStr for SocketName {
+    type Err = ParseSocketNameError;
+
+    fn from_str(s: &str) -> Result<Self, Self::Err> {
+        s.parse()
+            .map(SocketName::SocketAddr)
+            .or_else(|_| s.parse().map(SocketName::IpAddr))
+            .or_else(|_| {
+                let parts: Vec<_> = s.split(':').collect();
+                match parts.len() {
+                    1 => Ok(SocketName::HostName(
+                        parts[0].parse().map_err(ParseSocketNameError::Name)?,
+                        None,
+                    )),
+                    2 => Ok(SocketName::HostName(
+                        parts[0].parse().map_err(ParseSocketNameError::Name)?,
+                        Some(parts[1].parse().map_err(ParseSocketNameError::Port)?),
+                    )),
+                    _ => Err(ParseSocketNameError::Invalid),
+                }
+            })
+    }
+}
+
+impl fmt::Display for ParseSocketNameError {
+    fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
+        use ParseSocketNameError::*;
+        match self {
+            Invalid => write!(
+                f,
+                "invalid socket name, expected IP, IP:PORT, HOST, or HOST:PORT"
+            ),
+            Name(e) => write!(f, "invalid host name: {}", e),
+            Port(e) => write!(f, "invalid port: {}", e),
+        }
+    }
+}
+
+impl std::error::Error for ParseSocketNameError {}
+
+#[derive(Debug)]
+pub enum ParseSocketNameError {
+    Invalid,
+    Name(ProtoError),
+    Port(ParseIntError),
+}
 
 pub fn get_system_resolver() -> Option<SocketAddr> {
     use resolv_conf::{Config, ScopedIp};

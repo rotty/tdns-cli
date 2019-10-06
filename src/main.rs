@@ -36,6 +36,8 @@ struct Opt {
     #[structopt(long)]
     timeout: Option<u64>,
     #[structopt(long)]
+    server: Option<util::SocketName>,
+    #[structopt(long)]
     zone: Option<rr::Name>,
     /// Entry to monitor.
     entry: rr::Name,
@@ -154,6 +156,7 @@ impl Opt {
                 Some(operation) => operation,
                 None => return Ok(None),
             },
+            server: self.server.clone(),
             zone,
             tsig_key: self.get_tsig_key()?,
         }))

@@ -37,6 +37,7 @@ fn monitor_settings(expected: &str) -> Monitor {
 fn update_settings(operation: Operation) -> Update {
     Update {
         zone: "example.org".parse().unwrap(),
+        server: None,
         operation,
         tsig_key: None,
     }
