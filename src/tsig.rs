@@ -114,42 +114,42 @@ impl fmt::Display for UnknownAlgorithm {
 
 impl std::error::Error for UnknownAlgorithm {}
 
-pub fn add_signature(
-    msg: &mut op::Message,
-    key_name: rr::Name,
+#[derive(Debug, Clone)]
+pub struct Key {
+    name: rr::Name,
     algorithm: Algorithm,
-    key_data: &[u8],
-) -> Result<(), Error> {
+    secret: Vec<u8>,
+}
+
+impl Key {
+    pub fn new<T>(name: rr::Name, algorithm: Algorithm, secret: T) -> Self
+    where
+        T: Into<Vec<u8>>,
+    {
+        Key {
+            name,
+            algorithm,
+            secret: secret.into(),
+        }
+    }
+}
+
+pub fn add_signature(msg: &mut op::Message, key: &Key) -> Result<(), Error> {
     let unix_time = SystemTime::now().duration_since(SystemTime::UNIX_EPOCH)?;
-    let record = create_signature(&msg, unix_time.as_secs(), key_name, algorithm, key_data)?;
+    let record = create_signature(&msg, unix_time.as_secs(), key)?;
     msg.add_additional(record);
     Ok(())
 }
 
-fn create_signature(
-    msg: &op::Message,
-    time_signed: u64,
-    key_name: rr::Name,
-    algorithm: Algorithm,
-    key: &[u8],
-) -> Result<rr::Record, Error> {
+fn create_signature(msg: &op::Message, time_signed: u64, key: &Key) -> Result<rr::Record, Error> {
     use Algorithm::*;
-    let algo_name = algorithm.as_name().clone();
-    let tsig = match algorithm {
-        HmacSha224 => {
-            create_tsig::<Hmac<sha2::Sha224>>(&msg, time_signed, &key_name, algo_name, key)?
-        }
-        HmacSha256 => {
-            create_tsig::<Hmac<sha2::Sha256>>(&msg, time_signed, &key_name, algo_name, key)?
-        }
-        HmacSha384 => {
-            create_tsig::<Hmac<sha2::Sha384>>(&msg, time_signed, &key_name, algo_name, key)?
-        }
-        HmacSha512 => {
-            create_tsig::<Hmac<sha2::Sha512>>(&msg, time_signed, &key_name, algo_name, key)?
-        }
+    let tsig = match key.algorithm {
+        HmacSha224 => create_tsig::<Hmac<sha2::Sha224>>(&msg, time_signed, &key)?,
+        HmacSha256 => create_tsig::<Hmac<sha2::Sha256>>(&msg, time_signed, &key)?,
+        HmacSha384 => create_tsig::<Hmac<sha2::Sha384>>(&msg, time_signed, &key)?,
+        HmacSha512 => create_tsig::<Hmac<sha2::Sha512>>(&msg, time_signed, &key)?,
     };
-    let mut record = rr::Record::from_rdata(key_name, 0, tsig.try_into()?);
+    let mut record = rr::Record::from_rdata(key.name.clone(), 0, tsig.try_into()?);
     record.set_dns_class(rr::DNSClass::ANY);
     Ok(record)
 }
@@ -222,13 +222,7 @@ fn emit_u48(encoder: &mut BinEncoder, n: u64) -> ProtoResult<()> {
     Ok(())
 }
 
-fn create_tsig<T: Mac>(
-    msg: &op::Message,
-    time_signed: u64,
-    key_name: &rr::Name,
-    algo_name: rr::Name,
-    key: &[u8],
-) -> Result<TSIG, Error> {
+fn create_tsig<T: Mac>(msg: &op::Message, time_signed: u64, key: &Key) -> Result<TSIG, Error> {
     let mut encoded = Vec::new(); // TODO: initial capacity?
     let mut encoder = BinEncoder::new(&mut encoded);
     let fudge = 300; // FIXME: fudge hardcoded
@@ -249,22 +243,22 @@ fn create_tsig<T: Mac>(
     // TSIG RDATA   Other Len        in network byte order
     // TSIG RDATA   Other Data       exactly as transmitted
     encoder.set_canonical_names(true);
-    key_name.emit(&mut encoder)?;
+    key.name.emit(&mut encoder)?;
     rr::DNSClass::ANY.emit(&mut encoder)?;
     encoder.emit_u32(0)?; // TTL
-    algo_name.emit(&mut encoder)?;
+    key.algorithm.as_name().emit(&mut encoder)?;
     emit_u48(&mut encoder, time_signed)?;
     encoder.emit_u16(fudge)?;
     let rcode = op::ResponseCode::NoError;
     encoder.emit_u16(rcode.into())?;
     encoder.emit_u16(0)?; // Other data is of length 0
     let hmac = {
-        let mut mac = T::new_varkey(key)?;
+        let mut mac = T::new_varkey(&key.secret)?;
         mac.input(&encoded);
         mac.result().code().to_vec()
     };
     Ok(TSIG::new(
-        algo_name,
+        key.algorithm.as_name().clone(),
         time_signed,
         fudge,
         hmac,

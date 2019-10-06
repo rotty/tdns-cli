@@ -106,17 +106,8 @@ impl Opt {
         Ok(Some(operation))
     }
 
-    fn to_update(&self) -> Result<Option<Update>, failure::Error> {
-        let zone = self.zone.clone().unwrap_or_else(|| self.entry.base_name());
-        if self.no_op {
-            return Ok(None);
-        }
-        let operation = match self.get_operation()? {
-            Some(operation) => operation,
-            None => return Ok(None),
-        };
-        let tsig_key = self
-            .key
+    fn get_tsig_key(&self) -> Result<Option<tsig::Key>, failure::Error> {
+        self.key
             .clone()
             .map(|s| {
                 let parts: Vec<_> = s.split(':').collect();
@@ -127,17 +118,27 @@ impl Opt {
                     ));
                 }
                 let (name, algo, data) = (parts[0], parts[1], parts[2]);
-                Ok((
+                Ok(tsig::Key::new(
                     name.parse()?,
                     tsig::Algorithm::from_name(&algo.parse()?)?,
                     base64::decode(data)?,
                 ))
             })
-            .transpose()?;
+            .transpose()
+    }
+
+    fn to_update(&self) -> Result<Option<Update>, failure::Error> {
+        let zone = self.zone.clone().unwrap_or_else(|| self.entry.base_name());
+        if self.no_op {
+            return Ok(None);
+        }
         Ok(Some(Update {
-            operation,
+            operation: match self.get_operation()? {
+                Some(operation) => operation,
+                None => return Ok(None),
+            },
             zone,
-            tsig_key,
+            tsig_key: self.get_tsig_key()?,
         }))
     }
 

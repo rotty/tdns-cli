@@ -28,7 +28,7 @@ use crate::{
 pub struct Update {
     pub zone: rr::Name,
     pub operation: Operation,
-    pub tsig_key: Option<(rr::Name, tsig::Algorithm, Vec<u8>)>,
+    pub tsig_key: Option<tsig::Key>,
 }
 
 impl Update {
@@ -50,8 +50,8 @@ impl Update {
                 update_message::delete_all(name.clone(), self.zone.clone(), rr::DNSClass::IN)
             }
         };
-        if let Some((key_name, key_algo, key_data)) = &self.tsig_key {
-            tsig::add_signature(&mut message, key_name.clone(), *key_algo, key_data)?;
+        if let Some(key) = &self.tsig_key {
+            tsig::add_signature(&mut message, key)?;
         }
         Ok(message)
     }
