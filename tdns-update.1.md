@@ -87,6 +87,11 @@ still happen, unless turned off with __\--no-wait__.
     `/etc/resolv.conf`, using the first `nameserver` entry given
     therein.
 
+\--ttl=*seconds*
+:   Set the TTL, in seconds, for any records created due to an
+    update. If not specified, a default of 3600 (i.e., one hour) is
+    used.
+
 \--key=*name:algorithm:base64-secret*, \--key=*name*
 :   Use the specified secret to sign the update request with TSIG
     signature. TSIG allows the server to validate the update request

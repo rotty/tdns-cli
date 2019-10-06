@@ -40,6 +40,7 @@ fn update_settings(operation: Operation) -> Update {
         server: None,
         operation,
         tsig_key: None,
+        ttl: 300,
     }
 }
 

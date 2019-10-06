@@ -32,21 +32,23 @@ pub struct Update {
     pub server: Option<SocketName>,
     pub operation: Operation,
     pub tsig_key: Option<tsig::Key>,
+    pub ttl: u32,
 }
 
 impl Update {
     pub fn get_update(&self) -> Result<Message, tsig::Error> {
+        let ttl = self.ttl;
         let mut message = match &self.operation {
-            Operation::Create(rset) => update_message::create(rset.to_rrset(), self.zone.clone()),
+            Operation::Create(rset) => update_message::create(rset.to_rrset(ttl), self.zone.clone()),
             Operation::Append(rset) => {
-                update_message::append(rset.to_rrset(), self.zone.clone(), false)
+                update_message::append(rset.to_rrset(ttl), self.zone.clone(), false)
             }
             Operation::Delete(rset) => {
                 if rset.is_empty() {
-                    let record = rr::Record::with(rset.name().clone(), rset.record_type(), 0);
+                    let record = rr::Record::with(rset.name().clone(), rset.record_type(), ttl);
                     update_message::delete_rrset(record, self.zone.clone())
                 } else {
-                    update_message::delete_by_rdata(rset.to_rrset(), self.zone.clone())
+                    update_message::delete_by_rdata(rset.to_rrset(ttl), self.zone.clone())
                 }
             }
             Operation::DeleteAll(name) => {

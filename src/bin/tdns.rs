@@ -58,6 +58,9 @@ struct UpdateOpt {
     /// Excluded IP address.
     #[structopt(long)]
     exclude: Option<IpAddr>,
+    /// The TTL for added records.
+    #[structopt(long)]
+    ttl: Option<u32>,
     /// Do not perform the update.
     #[structopt(long)]
     no_op: bool,
@@ -166,6 +169,7 @@ impl UpdateOpt {
             server: self.server.clone(),
             zone,
             tsig_key: self.get_tsig_key()?,
+            ttl: self.ttl.unwrap_or(3600),
         }))
     }
 
