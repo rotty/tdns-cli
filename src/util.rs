@@ -97,7 +97,7 @@ pub fn get_system_resolver() -> Option<SocketAddr> {
     let config = Config::parse(&resolv_conf).ok()?;
     config.nameservers.iter().find_map(|scoped| match scoped {
         ScopedIp::V4(v4) => Some(SocketAddr::new(v4.clone().into(), 53)),
-        ScopedIp::V6(_, _) => None, // TODO: IPv6 support
+        ScopedIp::V6(v6, _) => Some(SocketAddr::new(v6.clone().into(), 53)),
     })
 }
 
