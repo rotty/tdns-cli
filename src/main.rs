@@ -1,5 +1,8 @@
 use std::{
+    fs,
+    io::{BufRead, BufReader},
     net::{IpAddr, SocketAddr},
+    path::{Path, PathBuf},
     time::Duration,
 };
 
@@ -38,9 +41,12 @@ struct Opt {
     entry: rr::Name,
     /// RRset to update and/or monitor.
     rs_data: Option<RsData>,
-    /// TSIG key in NAME:ALGORITHM:BASE64-DATA notation.
+    /// TSIG key in NAME:ALGORITHM:BASE64-DATA notation, or just NAME when used
+    /// in combination with --key-file.
     #[structopt(long)]
     key: Option<String>,
+    #[structopt(long)]
+    key_file: Option<PathBuf>,
     /// Excluded IP address.
     #[structopt(long)]
     exclude: Option<IpAddr>,
@@ -107,24 +113,35 @@ impl Opt {
     }
 
     fn get_tsig_key(&self) -> Result<Option<tsig::Key>, failure::Error> {
-        self.key
-            .clone()
-            .map(|s| {
-                let parts: Vec<_> = s.split(':').collect();
-                if parts.len() != 3 {
-                    return Err(format_err!(
-                        "expected three colon-separated parts, found {}",
-                        parts.len()
-                    ));
+        if let Some(key) = &self.key {
+            let parts: Vec<_> = key.split(':').collect();
+            match parts.len() {
+                1 => {
+                    let key_name = parts[0].parse()?;
+                    if let Some(file_name) = &self.key_file {
+                        Ok(Some(read_key(file_name, Some(&key_name))?))
+                    } else {
+                        Err(format_err!("--key-file option required with --key=NAME"))
+                    }
                 }
-                let (name, algo, data) = (parts[0], parts[1], parts[2]);
-                Ok(tsig::Key::new(
-                    name.parse()?,
-                    tsig::Algorithm::from_name(&algo.parse()?)?,
-                    base64::decode(data)?,
-                ))
-            })
-            .transpose()
+                3 => {
+                    let (name, algo, data) = (parts[0], parts[1], parts[2]);
+                    Ok(Some(tsig::Key::new(
+                        name.parse()?,
+                        tsig::Algorithm::from_name(&algo.parse()?)?,
+                        base64::decode(data)?,
+                    )))
+                }
+                _ => Err(format_err!(
+                    "expected NAME or NAME:ALGORITHM:KEY, found {}",
+                    key
+                )),
+            }
+        } else if let Some(key_file) = &self.key_file {
+            Ok(Some(read_key(key_file, None)?))
+        } else {
+            Ok(None)
+        }
     }
 
     fn to_update(&self) -> Result<Option<Update>, failure::Error> {
@@ -154,11 +171,13 @@ impl Opt {
                 None => Expectation::Is(self.get_rset()?),
                 Some(Operation::Create(rset)) => Expectation::Is(rset),
                 Some(Operation::Append(rset)) => Expectation::Contains(rset),
-                Some(Operation::Delete(rset)) => if rset.is_empty() {
-                    Expectation::Empty(rset.record_type())
-                } else {
-                    Expectation::NotAny(rset)
-                },
+                Some(Operation::Delete(rset)) => {
+                    if rset.is_empty() {
+                        Expectation::Empty(rset.record_type())
+                    } else {
+                        Expectation::NotAny(rset)
+                    }
+                }
                 Some(Operation::DeleteAll(_)) => Expectation::Empty(rr::RecordType::ANY),
             },
             exclude: self.exclude.into_iter().collect(),
@@ -166,6 +185,43 @@ impl Opt {
             timeout: Duration::from_secs(self.timeout.unwrap_or(60)),
             verbose: self.verbose,
         }))
+    }
+}
+
+fn read_key(path: &Path, key_name: Option<&rr::Name>) -> Result<tsig::Key, failure::Error> {
+    let file = fs::File::open(path)?;
+    let input = BufReader::new(file);
+    for line in input.lines() {
+        let line = line?;
+        let line = line.trim();
+        if line.is_empty() || line.starts_with('#') {
+            continue;
+        }
+        let parts: Vec<_> = line.split(':').collect();
+        if parts.len() != 3 {
+            return Err(format_err!(
+                "invalid line in key file; expected NAME:ALGORITHM:KEY, found {}",
+                line
+            ));
+        }
+        let name = parts[0].parse()?;
+        if key_name.is_none() || Some(&name) == key_name {
+            let (algo, data) = (parts[1], parts[2]);
+            return Ok(tsig::Key::new(
+                name,
+                tsig::Algorithm::from_name(&algo.parse()?)?,
+                base64::decode(data)?,
+            ));
+        }
+    }
+    if let Some(key_name) = key_name {
+        Err(format_err!(
+            "key {} not found in {}",
+            key_name,
+            path.display()
+        ))
+    } else {
+        Err(format_err!("no key found in {}", path.display()))
     }
 }
 
