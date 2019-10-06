@@ -153,7 +153,11 @@ impl Opt {
                 None => Expectation::Is(self.get_rset()?),
                 Some(Operation::Create(rset)) => Expectation::Is(rset),
                 Some(Operation::Append(rset)) => Expectation::Contains(rset),
-                Some(Operation::Delete(rset)) => Expectation::NotAny(rset),
+                Some(Operation::Delete(rset)) => if rset.is_empty() {
+                    Expectation::Empty(rset.record_type())
+                } else {
+                    Expectation::NotAny(rset)
+                },
                 Some(Operation::DeleteAll(_)) => Expectation::Empty(rr::RecordType::ANY),
             },
             exclude: self.exclude.into_iter().collect(),
