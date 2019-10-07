@@ -16,10 +16,12 @@ use tokio::runtime::current_thread::Runtime;
 use trust_dns::rr;
 
 use tdns_cli::{
+    query::{perform_query, print_dns_response, Query},
     record::{RecordSet, RsData},
     tsig,
     update::{monitor_update, perform_update, Expectation, Monitor, Operation, Update},
-    util, DnsOpen, RuntimeHandle, TcpOpen, UdpOpen,
+    util::{self, CommaSeparated},
+    DnsOpen, RuntimeHandle, TcpOpen, UdpOpen,
 };
 
 /// DNS client utilities
@@ -27,16 +29,57 @@ use tdns_cli::{
 enum Tdns {
     /// Update a DNS entry
     Update(UpdateOpt),
+    /// Issue DNS queries
+    Query(QueryOpt),
 }
 
 #[derive(StructOpt)]
-struct UpdateOpt {
+struct CommonOpt {
     /// Specify the recusor to use, including the port number.
     ///
     /// If not specified, the first nameserver specified in `/etc/resolv.conf`
     /// is used.
     #[structopt(long)]
     resolver: Option<SocketAddr>,
+    /// Use TCP for all DNS requests.
+    #[structopt(long)]
+    tcp: bool,
+}
+
+impl CommonOpt {
+    fn get_resolver_addr(&self) -> Result<SocketAddr, failure::Error> {
+        self.resolver
+            .or_else(util::get_system_resolver)
+            .ok_or_else(|| format_err!("could not obtain resolver address from operating system"))
+    }
+}
+
+#[derive(StructOpt)]
+struct QueryOpt {
+    #[structopt(flatten)]
+    common: CommonOpt,
+    entry: rr::Name,
+    #[structopt(long = "type", short = "t")]
+    record_types: Option<CommaSeparated<rr::RecordType>>,
+}
+
+impl QueryOpt {
+    fn to_query(&self) -> Result<Query, failure::Error> {
+        Ok(Query {
+            entry: self.entry.clone(),
+            record_types: self
+                .record_types
+                .as_ref()
+                .map(|cs| cs.to_vec())
+                .unwrap_or_else(|| vec![rr::RecordType::A]),
+        })
+    }
+}
+
+#[derive(StructOpt)]
+struct UpdateOpt {
+    #[structopt(flatten)]
+    common: CommonOpt,
     /// Timeout in seconds for how long to wait in total for a successful
     /// update.
     #[structopt(long)]
@@ -84,18 +127,9 @@ struct UpdateOpt {
     /// The number of seconds to wait between checking.
     #[structopt(long)]
     interval: Option<u64>,
-    /// Use TCP for all DNS requests.
-    #[structopt(long)]
-    tcp: bool,
 }
 
 impl UpdateOpt {
-    fn get_resolver_addr(&self) -> Result<SocketAddr, failure::Error> {
-        self.resolver
-            .or_else(util::get_system_resolver)
-            .ok_or_else(|| format_err!("could not obtain resolver address from operating system"))
-    }
-
     fn get_rset(&self) -> Result<RecordSet, failure::Error> {
         let rs_data = self
             .rs_data
@@ -202,6 +236,11 @@ impl UpdateOpt {
     }
 }
 
+/// Reads a TSIG key from a file.
+///
+/// If `key_name` is `None`, the first key will be returned, otherwise the first
+/// key matching `key_name` will be returned. When no matching key was found, or
+/// the file could not be parsed, an error will be returned.
 fn read_key(path: &Path, key_name: Option<&rr::Name>) -> Result<tsig::Key, failure::Error> {
     let file = fs::File::open(path)?;
     let input = BufReader::new(file);
@@ -244,7 +283,7 @@ fn run_update<D: DnsOpen + 'static>(
     mut dns: D,
     opt: UpdateOpt,
 ) -> Result<Box<dyn Future<Item = (), Error = failure::Error>>, failure::Error> {
-    let resolver = dns.open(runtime.clone(), opt.get_resolver_addr()?);
+    let resolver = dns.open(runtime.clone(), opt.common.get_resolver_addr()?);
     let maybe_update = match opt.to_update()? {
         Some(update) => Either::A(perform_update(
             runtime.clone(),
@@ -261,18 +300,37 @@ fn run_update<D: DnsOpen + 'static>(
     Ok(Box::new(maybe_update.and_then(|_| maybe_monitor)))
 }
 
+fn run_query<D: DnsOpen + 'static>(
+    runtime: RuntimeHandle,
+    mut dns: D,
+    opt: QueryOpt,
+) -> Result<Box<dyn Future<Item = (), Error = failure::Error>>, failure::Error> {
+    let resolver = dns.open(runtime.clone(), opt.common.get_resolver_addr()?);
+    let query = opt.to_query()?;
+    Ok(Box::new(
+        perform_query(resolver, query.clone()).map(move |r| print_dns_response(&r, &query)),
+    ))
+}
+
 fn run(tdns: Tdns) -> Result<(), failure::Error> {
     let mut runtime = Runtime::new().unwrap();
     let app = match tdns {
+        Tdns::Query(opt) => {
+            if opt.common.tcp {
+                run_query(runtime.handle(), TcpOpen, opt)?
+            } else {
+                run_query(runtime.handle(), UdpOpen, opt)?
+            }
+        }
         Tdns::Update(opt) => {
-            if opt.tcp {
+            if opt.common.tcp {
                 run_update(runtime.handle(), TcpOpen, opt)?
             } else {
                 run_update(runtime.handle(), UdpOpen, opt)?
             }
         }
     };
-    runtime.block_on(app).map(|_| ())
+    runtime.block_on(app)
 }
 
 fn main() {

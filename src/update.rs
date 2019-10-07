@@ -39,7 +39,9 @@ impl Update {
     pub fn get_update(&self) -> Result<Message, tsig::Error> {
         let ttl = self.ttl;
         let mut message = match &self.operation {
-            Operation::Create(rset) => update_message::create(rset.to_rrset(ttl), self.zone.clone()),
+            Operation::Create(rset) => {
+                update_message::create(rset.to_rrset(ttl), self.zone.clone())
+            }
             Operation::Append(rset) => {
                 update_message::append(rset.to_rrset(ttl), self.zone.clone(), false)
             }
