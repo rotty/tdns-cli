@@ -72,7 +72,7 @@ You can generate the manpages using the included `Makefile`, and view
 the man page using the Unix `man` command:
 
 ```sh
-make
+make man
 man -l tdns.1
 man -l tnds-query.1
 man -l tnds-update.1
