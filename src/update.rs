@@ -135,6 +135,9 @@ impl Expectation {
             }
             Expectation::Empty(_) => rrs.is_empty(),
             Expectation::NotAny(other) => {
+                if rrs.is_empty() {
+                    return true;
+                }
                 let rset = match RecordSet::try_from(rrs) {
                     Err(_) => return false,
                     Ok(rs) => rs,
