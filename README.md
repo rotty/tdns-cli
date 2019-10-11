@@ -8,16 +8,16 @@ commands distributed as part of the ISC bind suite, adding features
 such as propagation checking for updates and a more convenient (and
 "standard") command-line interface.
 
-Currently, only the `tdns update` sub-command is provided, which can
-already be used as a (partial) replacement for `nsupdate`. Querying
-functionality akin to `dig` is planned.
-
 `tdns` is implemented in Rust, taking advantage of the terrific
 [`trust-dns`] DNS client library, and uses a single-threaded,
 non-blocking runtime. Translated from developer speak, this means that
 `tdns-udpate` should be very light on system resources, and cope well
 even with unreasonably large tasks, such as monitoring a record in a
 zone that is served by hundreds of authoritative nameservers.
+
+Note that `tdns` is currently in its initial development phase. The
+usual caveats apply. If you're still interested, read on for more
+information of what is currently working, and what is planned.
 
 ## Installation
 
@@ -58,17 +58,47 @@ file target/x86_64-unknown-linux-musl/release/tdns \
   | grep -q 'statically linked' || echo "nope"
 ```
 
+### Documentation
+
+The documentation for the `tdns` and its subcommands are provided in
+the form of Unix man pages, rendered from markdown source files, which
+can be turned in to troff format for viewing with the `man` command
+using [pandoc]. Note that to the markdown sources are tailored toward
+producing good output when fed through pandoc, and will not be
+rendered that nicely on github or alike, and is not ideal to read in
+plain, either.
+
+You can generate the manpages using the included `Makefile`, and view
+the man page using the Unix `man` command:
+
+```sh
+make
+man -l tdns.1
+man -l tnds-query.1
+man -l tnds-update.1
+```
+
+HTML renderings of the manpages are also created when running `make`,
+these are also available online:
+
+- [tdns.1](https://r0tty.org/software/tnds.1.html), providing an
+  overview.
+- [tdns-query.1](https://r0tty.org/software/tnds-query.1.html),
+  documenting the `tdns query` subcommand.
+- [tdns-update.1](https://r0tty.org/software/tnds-update.1.html),
+  documenting the `tdns update` subcommand.
+
 ## Available subcommands
+
+### tdns query
+
+This subcommand can be used as a partial substitute for `dig +short`;
+extending the functionality is planned.
 
 ### tdns update
 
 A dynamic DNS updater and update checker, using the mechanism
 described in RFC 2136.
-
-Note that `tdns update` is currently in its initial development phase,
-and hasn't even been deployed in earnest by its author. The usual
-caveats apply. If you're still interested, read on for more
-information of what is currently working, and what is planned.
 
 `tdns update` updates and/or monitors an entry in a DNS zone. The
 updating functionality is currently a limited subset of what the
@@ -83,56 +113,31 @@ With a single `tnds update` invocation, you can both perform a DNS
 update operation, and wait for all the authoritative nameservers in
 the zone to provide the updated records.
 
-#### Documentation
-
-The documentation for the `tdns update` sub-command comes in the form
-of [man page](./tnds-update.1.md). The markdown file can be turned in
-to troff format for viewing with the `man` command using
-[pandoc]. Note that to the markdown source is tailored toward
-producing good output when fed through pandoc, and will not be
-rendered nicely on github or alike, and is not ideal to read in plain,
-either.
-
-You can generate the manpage using the included `Makefile`, and view
-the man page using the Unix `man` command:
-
-```sh
-make tdns-update.1 && man -l tnds-update.1
-```
-
-You can also find a pandoc HTML rendering of the manpage
-[online](https://r0tty.org/software/tnds-update.1.html).
-
 #### Missing features
 
 Without those, `tdns update` cannot function reliably, or can be
 considered not doing the job properly:
 
-- [X] DNS query retries.
-- [X] Use system resolver by default. This currently only works on
-      systems that have `/etc/resolv.conf`.
+- [ ] If no `--resolver` option is provided, make use of all the
+      resolvers specified in `/etc/resolv.conf`, not just the first
+      one.
 - [ ] Probe all addresses an `NS` entry resolves to.
 - [ ] IPv6 support; the code is largely agnostic of IP address family,
       but IPv6 support has not yet been actively worked on.
-- [X] Support for TSIG, which provides authenticated updates using a
-      shared secret.
-- [ ] Allow for the TSIG key to be provided in a file, to prevent
-      leakage via `ps` and shell history.
 
 #### Planned features
 
-- [X] TCP support -- currently, only UDP-based DNS is supported.
-- [ ] To become a viable replacement for `nsupdate`, a more elaborate
-      way for describing the update. similar to the `nsupdate`
+- [ ] To become a full replacement for `nsupdate`, a more elaborate
+      way for describing the update, similar to the `nsupdate`
       "scripts" is needed; adapting the command-line interface is not
       suitable for more complex update operations.
 - [ ] Once a mechanism for describing an update in some kind of DSL is
       added, it should be quite easy to allow updating multiple zones
       concurrently in a single run. This functionality is probably not
       that useful in practice, but who knows...
-- [X] A test suite that checks the application logic against a mocked
-      "DNS server". This is implemented in basic form, but coverage is
-      currently quite limited.
+- [ ] Increase the test coverage of the test suite; the infrastructure
+      and some basic tests are present, but coverage is quite limited
+      currently.
 
 #### Example use case
 
@@ -145,7 +150,7 @@ secondary DNS servers, it can take a while until the update is
 completely rolled out to all of them. `tdns update` can be used as
 part of the hook script to deploy the letsencrypt challenge to DNS.
 
-# License
+## License
 
 Copyright © 2019 Andreas Rottmann
 
@@ -162,7 +167,7 @@ General Public License for more details.
 You should have received a copy of the GNU General Public License
 along with this program; if not, see <https://www.gnu.org/licenses>.
 
-## Additional permission under GNU GPL version 3 section 7
+### Additional permission under GNU GPL version 3 section 7
 
 If you modify this Program, or any covered work, by linking or
 combining it with OpenSSL (or a modified version of that library),
@@ -172,7 +177,7 @@ the resulting work. Corresponding Source for a non-source form of such
 a combination shall include the source code for the parts of OpenSSL
 used as well as that of the covered work.
 
-# Contributions
+## Contributions
 
 Unless explicitly indicated otherwise, any contribution intentionally
 submitted for inclusion in this crate:
@@ -190,3 +195,4 @@ submitted for inclusion in this crate:
 [`trust-dns`]: https://github.com/bluejekyll/trust-dns
 [DNS-01 protocol]: https://letsencrypt.org/docs/challenge-types/
 [pandoc]: https://pandoc.org/
+[crates.io]: https://crates.io
