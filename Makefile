@@ -1,5 +1,5 @@
 MAN_HEADER = "tdns Manual"
-MAN_SOURCES = tdns.1.md tdns-update.1.md
+MAN_SOURCES = tdns.1.md tdns-query.1.md tdns-update.1.md
 MAN_SECTION = 1
 
 PANDOC_HTML_OPTIONS =

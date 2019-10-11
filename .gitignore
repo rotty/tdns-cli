@@ -5,6 +5,8 @@
 # Generated man page. These are built when using the included Makefile.
 /tdns.1
 /tdns.1.html
+/tdns-query.1
+/tdns-query.1.html
 /tdns-update.1
 /tdns-update.1.html
 
