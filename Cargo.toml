@@ -18,6 +18,7 @@ maintenance = { status = "actively-developed" }
 trust-dns = "0.17.0"
 structopt = "0.3.1"
 futures = "0.1.29"
+anyhow = "1.0"
 failure = "0.1.5"
 tokio = "0.1.22"
 tokio-udp = "0.1.5"

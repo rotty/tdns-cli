@@ -2,10 +2,12 @@ use std::{
     collections::HashMap,
     convert::{TryFrom, TryInto},
     net::SocketAddr,
+    str::FromStr,
     sync::{Arc, Mutex},
 };
 
-use failure::format_err;
+use anyhow::anyhow;
+use failure::ResultExt;
 use futures::future::{self, FutureResult};
 use trust_dns::{
     op::update_message::UpdateMessage,
@@ -47,33 +49,41 @@ impl Zone {
     }
 }
 
-pub fn parse_rdata(rtype: &str, rdata: &str) -> Result<rr::RData, failure::Error> {
+fn parse_compat<T, E>(s: &str) -> Result<T, anyhow::Error>
+where
+    T: FromStr<Err = E>,
+    E: failure::Fail,
+{
+    Ok(s.parse::<T>().compat()?)
+}
+
+pub fn parse_rdata(rtype: &str, rdata: &str) -> Result<rr::RData, anyhow::Error> {
     use rr::{rdata::SOA, RData};
     match rtype {
-        "A" => Ok(RData::A(rdata.parse()?)),
-        "AAAA" => Ok(RData::AAAA(rdata.parse()?)),
-        "NS" => Ok(RData::NS(rdata.parse()?)),
+        "A" => Ok(RData::A(parse_compat(rdata)?)),
+        "AAAA" => Ok(RData::AAAA(parse_compat(rdata)?)),
+        "NS" => Ok(RData::NS(parse_compat(rdata)?)),
         "SOA" => {
             let parts: Vec<_> = rdata.split(' ').collect();
             // This quite ugly -- is there a better way?
             Ok(RData::SOA(SOA::new(
-                parts[0].parse()?,
-                parts[1].parse()?,
-                parts[2].parse()?,
-                parts[3].parse()?,
-                parts[4].parse()?,
-                parts[5].parse()?,
-                parts[6].parse()?,
+                parse_compat(parts[0])?,
+                parse_compat(parts[1])?,
+                parse_compat(parts[2])?,
+                parse_compat(parts[3])?,
+                parse_compat(parts[4])?,
+                parse_compat(parts[5])?,
+                parse_compat(parts[6])?,
             )))
         }
-        _ => Err(format_err!("unsupported record type: {}", rtype)),
+        _ => Err(anyhow!("unsupported record type: {}", rtype)),
     }
 }
 
 pub type ZoneEntries<'a> = &'a [(&'a str, &'a str, &'a str)];
 
 impl<'a> TryFrom<ZoneEntries<'a>> for Zone {
-    type Error = failure::Error;
+    type Error = anyhow::Error;
 
     fn try_from(entries: ZoneEntries) -> Result<Self, Self::Error> {
         Ok(Zone(
@@ -81,12 +91,12 @@ impl<'a> TryFrom<ZoneEntries<'a>> for Zone {
                 .iter()
                 .map(|(name, rtype, rdata)| {
                     Ok(rr::Record::from_rdata(
-                        name.parse()?,
+                        parse_compat(name)?,
                         0,
                         parse_rdata(rtype, rdata)?,
                     ))
                 })
-                .collect::<Result<_, failure::Error>>()?,
+                .collect::<Result<_, anyhow::Error>>()?,
         ))
     }
 }

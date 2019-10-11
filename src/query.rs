@@ -1,4 +1,5 @@
 use futures::{future, Future};
+use failure::Fail;
 
 use trust_dns::{
     client::ClientHandle,
@@ -15,12 +16,12 @@ pub struct Query {
 pub fn perform_query(
     mut resolver: impl DnsHandle,
     options: Query,
-) -> impl Future<Item = Vec<DnsResponse>, Error = failure::Error> {
+) -> impl Future<Item = Vec<DnsResponse>, Error = anyhow::Error> {
     let entry = options.entry;
     future::join_all(options.record_types.into_iter().map(move |rtype| {
         resolver
             .query(entry.clone(), rr::DNSClass::IN, rtype)
-            .map_err(Into::into)
+            .map_err(|e| e.compat().into())
     }))
 }
 

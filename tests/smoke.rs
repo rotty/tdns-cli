@@ -183,7 +183,7 @@ fn test_create_delayed() {
         .map_err(Into::into);
     runtime
         .block_on(future::join_all(vec![
-            Box::new(update) as Box<dyn Future<Item = (), Error = failure::Error>>,
+            Box::new(update) as Box<dyn Future<Item = (), Error = anyhow::Error>>,
             Box::new(update_auth),
         ]))
         .unwrap();

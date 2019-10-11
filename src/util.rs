@@ -5,7 +5,7 @@ use std::{
     str::FromStr,
 };
 
-use failure::format_err;
+use anyhow::anyhow;
 use futures::{
     future::{self, Either},
     Future,
@@ -57,7 +57,7 @@ impl SocketName {
         &self,
         resolver: impl DnsHandle,
         default_port: u16,
-    ) -> impl Future<Item = SocketAddr, Error = failure::Error> {
+    ) -> impl Future<Item = SocketAddr, Error = anyhow::Error> {
         match self {
             SocketName::HostName(name, port) => {
                 let port = port.unwrap_or(default_port);
@@ -131,7 +131,7 @@ pub fn get_system_resolver() -> Option<SocketAddr> {
 pub fn dns_query(
     mut recursor: impl ClientHandle,
     query: Query,
-) -> impl Future<Item = DnsResponse, Error = failure::Error> {
+) -> impl Future<Item = DnsResponse, Error = anyhow::Error> {
     use future::Loop;
     const MAX_TRIES: usize = 3;
     future::loop_fn(0, move |count| {
@@ -140,7 +140,7 @@ pub fn dns_query(
         run_query.then(move |result| match result {
             Ok(addrs) => future::ok(Loop::Break(addrs)),
             Err(_) if count < MAX_TRIES => future::ok(Loop::Continue(count + 1)),
-            Err(e) => future::err(format_err!(
+            Err(e) => future::err(anyhow!(
                 "could not resolve server name '{}' (max retries reached): {}",
                 name,
                 e
@@ -152,7 +152,7 @@ pub fn dns_query(
 pub fn query_ip_addr(
     recursor: impl ClientHandle,
     name: rr::Name,
-) -> impl Future<Item = Vec<IpAddr>, Error = failure::Error> + 'static {
+) -> impl Future<Item = Vec<IpAddr>, Error = anyhow::Error> + 'static {
     // FIXME: IPv6
     dns_query(recursor, Query::query(name, RecordType::A)).map(|response| {
         response
@@ -166,7 +166,7 @@ pub fn query_ip_addr(
 pub fn get_ns_records<R>(
     recursor: R,
     domain: rr::Name,
-) -> impl Future<Item = Vec<Record>, Error = failure::Error>
+) -> impl Future<Item = Vec<Record>, Error = anyhow::Error>
 where
     R: ClientHandle,
 {
@@ -177,13 +177,13 @@ where
 pub fn resolve_ip(
     recursor: impl ClientHandle,
     server_name: rr::Name,
-) -> impl Future<Item = IpAddr, Error = failure::Error> {
+) -> impl Future<Item = IpAddr, Error = anyhow::Error> {
     query_ip_addr(recursor.clone(), server_name.clone()).and_then(move |addrs| {
         // TODO: handle multiple addresses
         if let Some(addr) = addrs.first().cloned() {
             Ok(addr)
         } else {
-            Err(format_err!(
+            Err(anyhow!(
                 "could not resolve server '{}': no addresses found",
                 server_name
             ))

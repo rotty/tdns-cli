@@ -6,7 +6,8 @@ use std::{
     time::Duration,
 };
 
-use failure::format_err;
+use anyhow::anyhow;
+use failure::ResultExt;
 use futures::{
     future::{self, Either},
     Future,
@@ -47,10 +48,10 @@ struct CommonOpt {
 }
 
 impl CommonOpt {
-    fn get_resolver_addr(&self) -> Result<SocketAddr, failure::Error> {
+    fn get_resolver_addr(&self) -> Result<SocketAddr, anyhow::Error> {
         self.resolver
             .or_else(util::get_system_resolver)
-            .ok_or_else(|| format_err!("could not obtain resolver address from operating system"))
+            .ok_or_else(|| anyhow!("could not obtain resolver address from operating system"))
     }
 }
 
@@ -64,7 +65,7 @@ struct QueryOpt {
 }
 
 impl QueryOpt {
-    fn to_query(&self) -> Result<Query, failure::Error> {
+    fn to_query(&self) -> Result<Query, anyhow::Error> {
         Ok(Query {
             entry: self.entry.clone(),
             record_types: self
@@ -130,15 +131,15 @@ struct UpdateOpt {
 }
 
 impl UpdateOpt {
-    fn get_rset(&self) -> Result<RecordSet, failure::Error> {
+    fn get_rset(&self) -> Result<RecordSet, anyhow::Error> {
         let rs_data = self
             .rs_data
             .clone()
-            .ok_or_else(|| format_err!("Missing RS-DATA argument"))?;
+            .ok_or_else(|| anyhow!("Missing RS-DATA argument"))?;
         Ok(RecordSet::new(self.entry.clone(), rs_data))
     }
 
-    fn get_operation(&self) -> Result<Option<Operation>, failure::Error> {
+    fn get_operation(&self) -> Result<Option<Operation>, anyhow::Error> {
         let op_flags = &[self.create, self.delete, self.append];
         let operation = match op_flags.iter().filter(|&&flag| flag).count() {
             0 => return Ok(None),
@@ -153,32 +154,32 @@ impl UpdateOpt {
                 2 => Operation::Append(self.get_rset()?),
                 _ => unreachable!(),
             },
-            _ => return Err(format_err!("Conflicting operations specified")),
+            _ => return Err(anyhow!("Conflicting operations specified")),
         };
         Ok(Some(operation))
     }
 
-    fn get_tsig_key(&self) -> Result<Option<tsig::Key>, failure::Error> {
+    fn get_tsig_key(&self) -> Result<Option<tsig::Key>, anyhow::Error> {
         if let Some(key) = &self.key {
             let parts: Vec<_> = key.split(':').collect();
             match parts.len() {
                 1 => {
-                    let key_name = parts[0].parse()?;
+                    let key_name = parts[0].parse::<rr::Name>().compat()?;
                     if let Some(file_name) = &self.key_file {
                         Ok(Some(read_key(file_name, Some(&key_name))?))
                     } else {
-                        Err(format_err!("--key-file option required with --key=NAME"))
+                        Err(anyhow!("--key-file option required with --key=NAME"))
                     }
                 }
                 3 => {
                     let (name, algo, data) = (parts[0], parts[1], parts[2]);
                     Ok(Some(tsig::Key::new(
-                        name.parse()?,
-                        tsig::Algorithm::from_name(&algo.parse()?)?,
+                        name.parse::<rr::Name>().compat()?,
+                        tsig::Algorithm::from_name(&algo.parse::<rr::Name>().compat()?)?,
                         base64::decode(data)?,
                     )))
                 }
-                _ => Err(format_err!(
+                _ => Err(anyhow!(
                     "expected NAME or NAME:ALGORITHM:KEY, found {}",
                     key
                 )),
@@ -190,7 +191,7 @@ impl UpdateOpt {
         }
     }
 
-    fn to_update(&self) -> Result<Option<Update>, failure::Error> {
+    fn to_update(&self) -> Result<Option<Update>, anyhow::Error> {
         let zone = self.zone.clone().unwrap_or_else(|| self.entry.base_name());
         if self.no_op {
             return Ok(None);
@@ -207,7 +208,7 @@ impl UpdateOpt {
         }))
     }
 
-    fn to_monitor(&self) -> Result<Option<Monitor>, failure::Error> {
+    fn to_monitor(&self) -> Result<Option<Monitor>, anyhow::Error> {
         let zone = self.zone.clone().unwrap_or_else(|| self.entry.base_name());
         if self.no_wait {
             return Ok(None);
@@ -241,7 +242,7 @@ impl UpdateOpt {
 /// If `key_name` is `None`, the first key will be returned, otherwise the first
 /// key matching `key_name` will be returned. When no matching key was found, or
 /// the file could not be parsed, an error will be returned.
-fn read_key(path: &Path, key_name: Option<&rr::Name>) -> Result<tsig::Key, failure::Error> {
+fn read_key(path: &Path, key_name: Option<&rr::Name>) -> Result<tsig::Key, anyhow::Error> {
     let file = fs::File::open(path)?;
     let input = BufReader::new(file);
     for line in input.lines() {
@@ -252,29 +253,25 @@ fn read_key(path: &Path, key_name: Option<&rr::Name>) -> Result<tsig::Key, failu
         }
         let parts: Vec<_> = line.split(':').collect();
         if parts.len() != 3 {
-            return Err(format_err!(
+            return Err(anyhow!(
                 "invalid line in key file; expected NAME:ALGORITHM:KEY, found {}",
                 line
             ));
         }
-        let name = parts[0].parse()?;
+        let name = parts[0].parse::<rr::Name>().compat()?;
         if key_name.is_none() || Some(&name) == key_name {
             let (algo, data) = (parts[1], parts[2]);
             return Ok(tsig::Key::new(
                 name,
-                tsig::Algorithm::from_name(&algo.parse()?)?,
+                tsig::Algorithm::from_name(&algo.parse::<rr::Name>().compat()?)?,
                 base64::decode(data)?,
             ));
         }
     }
     if let Some(key_name) = key_name {
-        Err(format_err!(
-            "key {} not found in {}",
-            key_name,
-            path.display()
-        ))
+        Err(anyhow!("key {} not found in {}", key_name, path.display()))
     } else {
-        Err(format_err!("no key found in {}", path.display()))
+        Err(anyhow!("no key found in {}", path.display()))
     }
 }
 
@@ -282,7 +279,7 @@ fn run_update<D: DnsOpen + 'static>(
     runtime: RuntimeHandle,
     mut dns: D,
     opt: UpdateOpt,
-) -> Result<Box<dyn Future<Item = (), Error = failure::Error>>, failure::Error> {
+) -> Result<Box<dyn Future<Item = (), Error = anyhow::Error>>, anyhow::Error> {
     let resolver = dns.open(runtime.clone(), opt.common.get_resolver_addr()?);
     let maybe_update = match opt.to_update()? {
         Some(update) => Either::A(perform_update(
@@ -304,7 +301,7 @@ fn run_query<D: DnsOpen + 'static>(
     runtime: RuntimeHandle,
     mut dns: D,
     opt: QueryOpt,
-) -> Result<Box<dyn Future<Item = (), Error = failure::Error>>, failure::Error> {
+) -> Result<Box<dyn Future<Item = (), Error = anyhow::Error>>, anyhow::Error> {
     let resolver = dns.open(runtime.clone(), opt.common.get_resolver_addr()?);
     let query = opt.to_query()?;
     Ok(Box::new(
@@ -312,7 +309,7 @@ fn run_query<D: DnsOpen + 'static>(
     ))
 }
 
-fn run(tdns: Tdns) -> Result<(), failure::Error> {
+fn run(tdns: Tdns) -> Result<(), anyhow::Error> {
     let mut runtime = Runtime::new().unwrap();
     let app = match tdns {
         Tdns::Query(opt) => {

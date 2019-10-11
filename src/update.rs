@@ -6,7 +6,8 @@ use std::{
     time::{Duration, Instant},
 };
 
-use failure::format_err;
+use anyhow::anyhow;
+use failure::Fail;
 use futures::{
     future::{self, Either},
     Future,
@@ -161,18 +162,18 @@ pub fn perform_update<D>(
     mut dns: D,
     mut resolver: D::Client,
     options: Update,
-) -> Result<impl Future<Item = (), Error = failure::Error>, failure::Error>
+) -> Result<impl Future<Item = (), Error = anyhow::Error>, anyhow::Error>
 where
     D: DnsOpen,
 {
-    let message = options.get_update()?;
+    let message = options.get_update().map_err(Fail::compat)?;
     let get_master = if let Some(sockname) = options.server {
         Box::new(sockname.resolve(resolver, 53))
-            as Box<dyn Future<Item = SocketAddr, Error = failure::Error>>
+            as Box<dyn Future<Item = SocketAddr, Error = anyhow::Error>>
     } else {
         let get_soa = resolver
             .query(options.zone.clone(), rr::DNSClass::IN, rr::RecordType::SOA)
-            .map_err(failure::Error::from);
+            .map_err(|e| e.compat().into());
         let settings = options.clone();
         let resolver = resolver.clone();
         let resolve = get_soa.and_then(move |response| {
@@ -185,7 +186,7 @@ where
                     util::SocketName::HostName(soa.mname().clone(), None).resolve(resolver, 53),
                 )
             } else {
-                Either::B(future::err(format_err!(
+                Either::B(future::err(anyhow!(
                     "SOA record for {} not found",
                     settings.zone
                 )))
@@ -196,7 +197,7 @@ where
     let update = get_master
         .and_then(move |master| {
             let mut server = dns.open(runtime.clone(), master);
-            server.send(message).map_err(Into::into)
+            server.send(message).map_err(|e| e.compat().into())
         })
         .map(|_| ()); // TODO: probably should check response
     Ok(update)
@@ -207,13 +208,13 @@ pub fn monitor_update<D>(
     dns: D,
     resolver: D::Client,
     options: Monitor,
-) -> impl Future<Item = (), Error = failure::Error>
+) -> impl Future<Item = (), Error = anyhow::Error>
 where
     D: DnsOpen,
 {
     let options = Rc::new(options);
     let get_authorative =
-        util::get_ns_records(resolver.clone(), options.zone.clone()).map_err(failure::Error::from);
+        util::get_ns_records(resolver.clone(), options.zone.clone()).map_err(anyhow::Error::from);
     let poll_servers = {
         let options = Rc::clone(&options);
         get_authorative.and_then(move |authorative| {
@@ -227,7 +228,7 @@ where
         .timeout(options.timeout)
         .map_err(|e| {
             e.into_inner().unwrap_or_else(move || {
-                format_err!(
+                anyhow!(
                     "timeout; update not complete within {}ms",
                     options.timeout.as_millis()
                 )
@@ -242,7 +243,7 @@ fn poll_for_update<D, I>(
     resolver: D::Client,
     authorative: I,
     options: Rc<Monitor>,
-) -> impl Future<Item = (), Error = failure::Error>
+) -> impl Future<Item = (), Error = anyhow::Error>
 where
     I: IntoIterator<Item = rr::Name>,
     D: DnsOpen,
@@ -274,7 +275,7 @@ fn poll_entries<F>(
     server_name: rr::Name,
     settings: Rc<Monitor>,
     report: F,
-) -> impl Future<Item = (), Error = failure::Error>
+) -> impl Future<Item = (), Error = anyhow::Error>
 where
     F: Fn(&rr::Name, &[Record], bool) + 'static,
 {
@@ -285,7 +286,7 @@ where
         let query = settings.get_query();
         server
             .lookup(query, DnsRequestOptions::default())
-            .map_err(failure::Error::from)
+            .map_err(|e| e.compat().into())
             .and_then(move |response: DnsResponse| {
                 let answers = response.answers();
                 let hit = settings.expectation.satisfied_by(answers);
@@ -296,7 +297,7 @@ where
                     let when = Instant::now() + settings.interval;
                     Either::B(
                         Delay::new(when)
-                            .map_err(failure::Error::from)
+                            .map_err(anyhow::Error::from)
                             .map(|_| Loop::Continue(report)),
                     )
                 }
@@ -308,7 +309,7 @@ fn poll_server(
     server: impl ClientHandle,
     server_name: rr::Name,
     settings: Rc<Monitor>,
-) -> impl Future<Item = (), Error = failure::Error> {
+) -> impl Future<Item = (), Error = anyhow::Error> {
     poll_entries(
         server,
         server_name,
