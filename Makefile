@@ -4,7 +4,7 @@ MAN_SECTION = 1
 
 PANDOC_HTML_OPTIONS =
 
-all: $(patsubst %.1.md,%.1,$(MAN_SOURCES)) target/release/tdns
+all: $(patsubst %.1.md,%.1,$(MAN_SOURCES)) $(patsubst %.1.md,%.1.html,$(MAN_SOURCES)) target/release/tdns
 
 coverage:
 	cargo tarpaulin --exclude-files 'src/bin/*' src/open.rs 'tests/*' --out Xml \
