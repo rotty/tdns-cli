@@ -42,6 +42,24 @@ pub fn print_dns_response(responses: &[DnsResponse], _options: &Query) {
                         }
                     }
                 }
+                NS(name) => {
+                    println!("{}", name);
+                }
+                MX(mx) => {
+                    println!("{} {}", mx.preference(), mx.exchange());
+                }
+                SOA(soa) => {
+                    println!(
+                        "{} {} {} {} {} {} {}",
+                        soa.mname(),
+                        soa.rname(),
+                        soa.serial(),
+                        soa.refresh(),
+                        soa.retry(),
+                        soa.expire(),
+                        soa.minimum()
+                    );
+                }
                 // TODO: display other records properly
                 other => println!("{:?}", other),
             }
