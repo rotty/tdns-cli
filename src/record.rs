@@ -190,7 +190,7 @@ impl FromStr for RsData {
     fn from_str(s: &str) -> Result<Self, Self::Err> {
         let parts: Vec<_> = s.splitn(2, ':').collect();
         if parts.len() == 1 {
-            return match parts[0] {
+            return match parts[0].to_uppercase().as_str() {
                 "TXT" => Ok(RsData::TXT(Default::default())),
                 "A" => Ok(RsData::A(Default::default())),
                 "AAAA" => Ok(RsData::AAAA(Default::default())),
