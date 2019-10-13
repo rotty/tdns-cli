@@ -6,7 +6,7 @@ use std::{
 };
 
 use failure::format_err;
-use futures::future::{self};
+use futures::future;
 use trust_dns::{
     op::update_message::UpdateMessage,
     proto::{
@@ -17,8 +17,13 @@ use trust_dns::{
         DnsHandle,
     },
 };
+use trust_dns_resolver::{
+    error::ResolveError,
+    lookup::{Lookup, NsLookup, SoaLookup},
+    lookup_ip::LookupIp,
+};
 
-use tdns_cli::{DnsOpen, RuntimeHandle};
+use tdns_cli::{DnsOpen, Resolver, RuntimeHandle};
 
 pub type Handle<T> = Arc<Mutex<T>>;
 pub type FutureResult<T, E> = future::Ready<Result<T, E>>;
@@ -121,6 +126,7 @@ impl Open {
 
 impl DnsOpen for Open {
     type Client = Client;
+    type Resolver = Client;
     fn open(&mut self, _runtime: RuntimeHandle, addr: SocketAddr) -> Self::Client {
         let server = self
             .servers
@@ -128,10 +134,28 @@ impl DnsOpen for Open {
             .unwrap_or_else(|| panic!("no server for address {}", addr));
         Client(server.clone())
     }
+    fn open_resolver(&mut self, runtime: RuntimeHandle, addr: SocketAddr) -> Self::Resolver {
+        self.open(runtime, addr)
+    }
 }
 
 #[derive(Clone)]
 pub struct Client(Arc<Mutex<Server>>);
+
+impl Client {
+    fn query(&self, query: Query) -> Result<DnsResponse, ProtoError> {
+        let mut server = self.0.lock().unwrap();
+        let mut message = Message::new();
+        message.add_query(query);
+        server.request(message.into())
+    }
+    fn lookup_base(&self, name: rr::Name, rtype: rr::RecordType) -> Result<Lookup, ResolveError> {
+        let query = Query::query(name, rtype);
+        self.query(query.clone())
+            .map(|response| Lookup::new_with_max_ttl(query, Arc::new(response.answers().to_vec())))
+            .map_err(Into::into)
+    }
+}
 
 pub struct Server {
     zone: Handle<Zone>,
@@ -142,6 +166,29 @@ impl Server {
     pub fn zone(&self) -> Handle<Zone> {
         Arc::clone(&self.zone)
     }
+    fn request(&mut self, request: DnsRequest) -> Result<DnsResponse, ProtoError> {
+        self.query_log.push(request.clone());
+        match request.op_code() {
+            OpCode::Query => {
+                let mut message = Message::new();
+                let zone = self.zone.lock().unwrap();
+                for query in request.queries() {
+                    for record in zone.matches(query) {
+                        message.add_answer(record);
+                    }
+                }
+                Ok(message.into())
+            }
+            OpCode::Update => {
+                let mut zone = self.zone.lock().unwrap();
+                for update in request.updates() {
+                    zone.update(update);
+                }
+                Ok(Message::new().into())
+            }
+            _ => unimplemented!(),
+        }
+    }
 }
 
 impl DnsHandle for Client {
@@ -149,27 +196,27 @@ impl DnsHandle for Client {
 
     fn send<R: Into<DnsRequest>>(&mut self, request: R) -> Self::Response {
         let mut server = self.0.lock().unwrap();
-        let request = request.into();
-        server.query_log.push(request.clone());
-        match request.op_code() {
-            OpCode::Query => {
-                let mut message = Message::new();
-                let zone = server.zone.lock().unwrap();
-                for query in request.queries() {
-                    for record in zone.matches(query) {
-                        message.add_answer(record);
-                    }
-                }
-                future::ok(message.into())
-            }
-            OpCode::Update => {
-                let mut zone = server.zone.lock().unwrap();
-                for update in request.updates() {
-                    zone.update(update);
-                }
-                future::ok(Message::new().into())
-            }
-            _ => unimplemented!(),
-        }
+        future::ready(server.request(request.into()))
+    }
+}
+
+impl Resolver for Client {
+    type Lookup = FutureResult<Lookup, ResolveError>;
+    type LookupIp = FutureResult<LookupIp, ResolveError>;
+    type LookupSoa = FutureResult<SoaLookup, ResolveError>;
+    type LookupNs = FutureResult<NsLookup, ResolveError>;
+
+    fn lookup(&self, name: rr::Name, rtype: rr::RecordType) -> Self::Lookup {
+        future::ready(self.lookup_base(name, rtype))
+    }
+    fn lookup_ip(&self, host: rr::Name) -> Self::LookupIp {
+        // TODO: IPv6
+        future::ready(self.lookup_base(host, rr::RecordType::A).map(Into::into))
+    }
+    fn lookup_soa(&self, name: rr::Name) -> Self::LookupSoa {
+        future::ready(self.lookup_base(name, rr::RecordType::SOA).map(Into::into))
+    }
+    fn lookup_ns(&self, name: rr::Name) -> Self::LookupNs {
+        future::ready(self.lookup_base(name, rr::RecordType::NS).map(Into::into))
     }
 }

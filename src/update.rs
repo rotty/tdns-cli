@@ -10,7 +10,6 @@ use failure::format_err;
 use futures::stream::{FuturesUnordered, TryStreamExt};
 use tokio::timer::{delay, Timeout};
 use trust_dns::{
-    client::ClientHandle,
     op::{Message, Query},
     proto::xfer::{DnsHandle, DnsRequestOptions},
     rr,
@@ -20,7 +19,7 @@ use crate::{
     record::{RecordSet, RsData},
     tsig, update_message,
     util::{self, SocketName},
-    DnsOpen, RuntimeHandle,
+    DnsOpen, Resolver, RuntimeHandle,
 };
 
 #[derive(Debug, Clone)]
@@ -159,21 +158,21 @@ impl fmt::Display for Expectation {
 pub async fn perform_update<D>(
     runtime: RuntimeHandle,
     mut dns: D,
-    mut resolver: D::Client,
+    resolver: D::Resolver,
     options: Update,
 ) -> Result<(), failure::Error>
 where
     D: DnsOpen,
+    D::Resolver: 'static,
 {
     let message = options.get_update()?;
     let master = if let Some(sockname) = options.server {
         sockname.resolve(resolver, 53).await?
     } else if let Some(soa) = resolver
-            .query(options.zone.clone(), rr::DNSClass::IN, rr::RecordType::SOA)
-            .await?
-            .answers()
-            .first()
-            .and_then(|rr| rr.rdata().as_soa())
+        .lookup_soa(options.zone.clone())
+        .await?
+        .iter()
+        .next()
     {
         util::SocketName::HostName(soa.mname().clone(), None)
             .resolve(resolver, 53)
@@ -190,19 +189,16 @@ where
 pub async fn monitor_update<D>(
     runtime: RuntimeHandle,
     dns: D,
-    resolver: D::Client,
+    resolver: D::Resolver,
     options: Monitor,
 ) -> Result<(), failure::Error>
 where
     D: DnsOpen,
 {
     let options = Rc::new(options);
-    let authorative = util::get_ns_records(resolver.clone(), options.zone.clone()).await?;
-    let names = authorative
-        .into_iter()
-        .filter_map(|r| r.rdata().as_ns().cloned());
+    let authorative = resolver.lookup_ns(options.zone.clone()).await?;
     match Timeout::new(
-        poll_for_update(runtime, dns, resolver, names, Rc::clone(&options)),
+        poll_for_update(runtime, dns, resolver, authorative, Rc::clone(&options)),
         options.timeout,
     )
     .await?
@@ -218,7 +214,7 @@ where
 async fn poll_for_update<D, I>(
     runtime: RuntimeHandle,
     dns: D,
-    resolver: D::Client,
+    resolver: D::Resolver,
     authorative: I,
     options: Rc<Monitor>,
 ) -> Result<(), failure::Error>
@@ -245,14 +241,19 @@ where
 async fn poll_server<D>(
     runtime: RuntimeHandle,
     mut dns: D,
-    resolver: D::Client,
+    resolver: D::Resolver,
     server_name: rr::Name,
     options: Rc<Monitor>,
 ) -> Result<(), failure::Error>
 where
     D: DnsOpen,
 {
-    let ip = util::resolve_ip(resolver.clone(), server_name.clone()).await?;
+    let ip = resolver
+        .lookup_ip(server_name.clone())
+        .await?
+        .iter()
+        .next()
+        .ok_or_else(|| format_err!("could not resolve {}", &server_name))?;
     if options.exclude.contains(&ip) {
         return Ok(());
     }

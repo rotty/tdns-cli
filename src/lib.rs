@@ -7,4 +7,4 @@ pub mod util;
 
 mod open;
 
-pub use open::{DnsOpen, RuntimeHandle, TcpOpen, UdpOpen};
+pub use open::{DnsOpen, Resolver, RuntimeHandle, TcpOpen, UdpOpen};

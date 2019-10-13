@@ -1,18 +1,20 @@
 use std::{
     fs,
-    io::{BufRead, BufReader},
+    io::{BufRead, BufReader, Write},
     net::{IpAddr, SocketAddr},
     path::{Path, PathBuf},
     time::Duration,
 };
 
 use failure::format_err;
+use futures::{future, StreamExt};
 use structopt::StructOpt;
 use tokio::runtime::current_thread::Runtime;
 use trust_dns::{proto::error::ProtoError, rr};
+use trust_dns_resolver::error::ResolveErrorKind;
 
 use tdns_cli::{
-    query::{self, perform_query, print_query_response, Query},
+    query::{self, perform_query, Query},
     record::{RecordSet, RsData},
     tsig,
     update::{monitor_update, perform_update, Expectation, Monitor, Operation, Update},
@@ -308,7 +310,7 @@ async fn run_update<D: DnsOpen + 'static>(
     mut dns: D,
     opt: UpdateOpt,
 ) -> Result<(), failure::Error> {
-    let resolver = dns.open(runtime.clone(), opt.common.get_resolver_addr()?);
+    let resolver = dns.open_resolver(runtime.clone(), opt.common.get_resolver_addr()?);
     if let Some(update) = opt.to_update()? {
         perform_update(runtime.clone(), dns.clone(), resolver.clone(), update).await?;
     }
@@ -323,19 +325,34 @@ async fn run_query<D: DnsOpen + 'static>(
     mut dns: D,
     opt: QueryOpt,
 ) -> Result<(), failure::Error> {
-    let resolver = dns.open(runtime.clone(), opt.common.get_resolver_addr()?);
+    let resolver = dns.open_resolver(runtime.clone(), opt.common.get_resolver_addr()?);
     let query = opt.to_query()?;
-    let responses = perform_query(resolver, query.clone()).await?;
-    let n_failures = print_query_response(&responses, &query)?;
-    if n_failures == 0 {
-        Ok(())
-    } else {
-        Err(format_err!(
-            "{}/{} queries failed",
-            n_failures,
-            responses.len()
-        ))
+    let (n_failed, total) = perform_query(resolver, query.clone())
+        .fold((0_usize, 0_usize), |(n_failed, total), item| {
+            let mut stdout = std::io::stdout();
+            let success = match item {
+                Ok(records) => {
+                    for record in records {
+                        query::write_record(&mut stdout, &record, query.display_format).unwrap();
+                        stdout.write_all(b"\n").unwrap();
+                    }
+                    true
+                }
+                Err(e) => match e.kind() {
+                    ResolveErrorKind::NoRecordsFound { .. } => true,
+                    _ => {
+                        eprintln!("error response for query: {}", e);
+                        false
+                    }
+                },
+            };
+            future::ready((n_failed + if success { 0 } else { 1 }, total + 1))
+        })
+        .await;
+    if n_failed > 0 {
+        return Err(format_err!("{}/{} queries failed", n_failed, total,));
     }
+    Ok(())
 }
 
 async fn run(runtime: RuntimeHandle, tdns: Tdns) -> Result<(), failure::Error> {

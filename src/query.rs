@@ -1,18 +1,12 @@
-use std::{
-    fmt,
-    io::{self, Write},
-    str::FromStr,
-};
+use std::{fmt, io, str::FromStr};
 
-use futures::future;
-use futures_util::TryFutureExt;
+use futures::stream::{FuturesUnordered, Stream};
+use futures_util::FutureExt;
 
-use trust_dns::{
-    client::ClientHandle,
-    op,
-    proto::xfer::{DnsHandle, DnsResponse},
-    rr,
-};
+use trust_dns::rr;
+use trust_dns_resolver::error::ResolveError;
+
+use crate::Resolver;
 
 #[derive(Debug, Clone)]
 pub enum ParseDisplayFormatError {
@@ -53,17 +47,20 @@ pub struct Query {
     pub display_format: DisplayFormat,
 }
 
-pub async fn perform_query(
-    mut resolver: impl DnsHandle,
+pub fn perform_query(
+    resolver: impl Resolver,
     options: Query,
-) -> Result<Vec<DnsResponse>, failure::Error> {
+) -> impl Stream<Item = Result<Vec<rr::Record>, ResolveError>> {
     let entry = options.entry;
-    future::try_join_all(options.record_types.into_iter().map(move |rtype| {
-        resolver
-            .query(entry.clone(), rr::DNSClass::IN, rtype)
-            .map_err(Into::into)
-    }))
-    .await
+    options
+        .record_types
+        .into_iter()
+        .map(|rtype| {
+            resolver.lookup(entry.clone(), rtype).map(|result| {
+                result.map(|lookup| lookup.record_iter().cloned().collect::<Vec<_>>())
+            })
+        })
+        .collect::<FuturesUnordered<_>>()
 }
 
 fn write_rdata<W: io::Write>(writer: &mut W, rdata: &rr::RData) -> io::Result<()> {
@@ -107,7 +104,7 @@ fn write_rdata<W: io::Write>(writer: &mut W, rdata: &rr::RData) -> io::Result<()
     Ok(())
 }
 
-fn write_record<W: io::Write>(
+pub fn write_record<W: io::Write>(
     writer: &mut W,
     record: &rr::Record,
     format: DisplayFormat,
@@ -129,34 +126,4 @@ fn write_record<W: io::Write>(
         }
     }
     Ok(())
-}
-
-// Prints the DNS responses, and returns the number of responses which failed.
-pub fn print_query_response(responses: &[DnsResponse], options: &Query) -> io::Result<usize> {
-    let mut stdout = io::stdout();
-    let mut n_failed = 0;
-    for response in responses {
-        for answer in response.answers() {
-            write_record(&mut stdout, answer, options.display_format)?;
-            stdout.write_all(b"\n")?;
-        }
-        let code = response.response_code();
-        if code != op::ResponseCode::NoError {
-            // Note that the number of queries is almost certainly 1, as
-            // multiple queries are possible by protocol, but seem to be
-            // universally non-implemented.
-            for query in response.queries() {
-                // TODO: would be nice to see which server was queried.
-                eprintln!(
-                    r#"Query "{} {} {}" failed: {}"#,
-                    query.name(),
-                    query.query_class(),
-                    query.query_type(),
-                    code
-                );
-            }
-            n_failed += 1;
-        }
-    }
-    Ok(n_failed)
 }
