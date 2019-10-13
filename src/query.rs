@@ -3,7 +3,7 @@ use std::{fmt, io, str::FromStr};
 use futures::stream::{FuturesUnordered, Stream};
 use futures_util::FutureExt;
 
-use trust_dns::rr;
+use trust_dns::rr::{self, rdata::caa};
 use trust_dns_resolver::error::ResolveError;
 
 use crate::Resolver;
@@ -68,6 +68,45 @@ fn write_rdata<W: io::Write>(writer: &mut W, rdata: &rr::RData) -> io::Result<()
     match rdata {
         A(addr) => write!(writer, "{}", addr)?,
         AAAA(addr) => write!(writer, "{}", addr)?,
+        CAA(caa) => {
+            let tag = match caa.tag() {
+                caa::Property::Issue => "issue",
+                caa::Property::IssueWild => "issuewild",
+                caa::Property::Iodef => "iodef",
+                caa::Property::Unknown(name) => name,
+            };
+            write!(
+                writer,
+                "{} {} ",
+                if caa.issuer_critical() { 1 } else { 0 },
+                tag,
+            )?;
+            match caa.value() {
+                caa::Value::Issuer(name, kvs) => {
+                    writer.write_all(b"\"")?;
+                    if let Some(name) = name {
+                        // TODO: quoting?
+                        write!(writer, "{}", name)?;
+                        if !kvs.is_empty() {
+                            writer.write_all(b";")?;
+                        }
+                    } else {
+                        writer.write_all(b";")?;
+                    }
+                    for kv in kvs {
+                        write!(writer, "{}={}", kv.key(), kv.value())?;
+                    }
+                    writer.write_all(b"\"")?;
+                }
+                // TODO: quoting?
+                caa::Value::Url(url) => write!(writer, "\"{}\"", url)?,
+                caa::Value::Unknown(bytes) => {
+                    // TODO: proper (lossless) display of data
+                    let s = String::from_utf8_lossy(bytes);
+                    write!(writer, "\"{}\"", s)?;
+                }
+            };
+        }
         TXT(txt) => {
             for (i, data) in txt.txt_data().iter().enumerate() {
                 // TODO: proper (lossless) display of TXT data
