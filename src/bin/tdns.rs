@@ -13,15 +13,14 @@ use futures::{
 };
 use structopt::StructOpt;
 use tokio::runtime::current_thread::Runtime;
-use trust_dns::{rr, proto::error::ProtoError};
+use trust_dns::{proto::error::ProtoError, rr};
 
 use tdns_cli::{
-    query::{perform_query, print_dns_response, Query},
+    query::{self, perform_query, print_dns_response, Query},
     record::{RecordSet, RsData},
     tsig,
     update::{monitor_update, perform_update, Expectation, Monitor, Operation, Update},
-    util,
-    DnsOpen, RuntimeHandle, TcpOpen, UdpOpen,
+    util, DnsOpen, RuntimeHandle, TcpOpen, UdpOpen,
 };
 
 /// DNS client utilities
@@ -70,17 +69,38 @@ struct QueryOpt {
     entry: rr::Name,
     #[structopt(long = "type", short = "t", parse(try_from_str = parse_rtypes))]
     record_types: Option<RTypes>,
+    #[structopt(long = "fmt", short = "f")]
+    display_format: Option<query::DisplayFormat>,
 }
 
 impl QueryOpt {
+    fn get_display_format(
+        display_format: Option<query::DisplayFormat>,
+        query_types: &[rr::RecordType],
+    ) -> query::DisplayFormat {
+        use query::DisplayFormat;
+        use rr::RecordType::*;
+        display_format.unwrap_or_else(move || {
+            if query_types.len() == 1
+                || query_types.iter().all(|&rtype| rtype == A || rtype == AAAA)
+            {
+                DisplayFormat::Short
+            } else {
+                DisplayFormat::Zone
+            }
+        })
+    }
+
     fn to_query(&self) -> Result<Query, failure::Error> {
+        let record_types = self
+            .record_types
+            .as_ref()
+            .map(|cs| cs.to_vec())
+            .unwrap_or_else(|| vec![rr::RecordType::A]);
         Ok(Query {
             entry: self.entry.clone(),
-            record_types: self
-                .record_types
-                .as_ref()
-                .map(|cs| cs.to_vec())
-                .unwrap_or_else(|| vec![rr::RecordType::A]),
+            display_format: Self::get_display_format(self.display_format, &record_types),
+            record_types,
         })
     }
 }
@@ -317,7 +337,8 @@ fn run_query<D: DnsOpen + 'static>(
     let resolver = dns.open(runtime.clone(), opt.common.get_resolver_addr()?);
     let query = opt.to_query()?;
     Ok(Box::new(
-        perform_query(resolver, query.clone()).map(move |r| print_dns_response(&r, &query)),
+        perform_query(resolver, query.clone())
+            .and_then(move |r| Ok(print_dns_response(&r, &query)?)),
     ))
 }
 
