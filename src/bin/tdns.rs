@@ -81,7 +81,7 @@ impl QueryOpt {
         use query::DisplayFormat;
         use rr::RecordType::*;
         display_format.unwrap_or_else(move || {
-            if query_types.len() == 1
+            if (query_types.len() == 1 && query_types[0] != ANY)
                 || query_types.iter().all(|&rtype| rtype == A || rtype == AAAA)
             {
                 DisplayFormat::Short

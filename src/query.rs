@@ -1,7 +1,7 @@
 use std::{
+    fmt,
     io::{self, Write},
     str::FromStr,
-    fmt,
 };
 
 use futures::{future, Future};
@@ -116,10 +116,11 @@ fn write_record<W: io::Write>(
         DisplayFormat::Zone => {
             write!(
                 writer,
-                "{} {} {} ",
+                "{} {} {} {} ",
                 record.name(),
                 record.ttl(),
-                record.dns_class()
+                record.dns_class(),
+                record.record_type(),
             )?;
             write_rdata(writer, record.rdata())?;
         }
