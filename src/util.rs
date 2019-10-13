@@ -17,31 +17,13 @@ use trust_dns::{
     rr::{self, Record, RecordType},
 };
 
-#[derive(Debug, Clone)]
-pub struct CommaSeparated<T>(Vec<T>);
-
-impl<T> CommaSeparated<T> {
-    pub fn into_vec(self) -> Vec<T> {
-        self.0
-    }
-}
-
-impl<T: Clone> CommaSeparated<T> {
-    pub fn to_vec(&self) -> Vec<T> {
-        self.0.clone()
-    }
-}
-
-impl<T: FromStr> FromStr for CommaSeparated<T> {
-    type Err = T::Err;
-
-    fn from_str(s: &str) -> Result<Self, Self::Err> {
-        Ok(CommaSeparated(
-            s.split(',')
-                .map(|part| part.parse())
-                .collect::<Result<_, _>>()?,
-        ))
-    }
+pub fn parse_comma_separated<T>(s: &str) -> Result<Vec<T>, T::Err>
+where
+    T: FromStr,
+{
+    Ok(s.split(',')
+        .map(|part| part.parse())
+        .collect::<Result<_, _>>()?)
 }
 
 /// A potential unresolved host name, with an optional port number.

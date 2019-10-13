@@ -13,14 +13,14 @@ use futures::{
 };
 use structopt::StructOpt;
 use tokio::runtime::current_thread::Runtime;
-use trust_dns::rr;
+use trust_dns::{rr, proto::error::ProtoError};
 
 use tdns_cli::{
     query::{perform_query, print_dns_response, Query},
     record::{RecordSet, RsData},
     tsig,
     update::{monitor_update, perform_update, Expectation, Monitor, Operation, Update},
-    util::{self, CommaSeparated},
+    util,
     DnsOpen, RuntimeHandle, TcpOpen, UdpOpen,
 };
 
@@ -54,13 +54,22 @@ impl CommonOpt {
     }
 }
 
+// This is just so that `structopt` does not treat options of this type as
+// taking multiple arguments.
+type RTypes = Vec<rr::RecordType>;
+
+fn parse_rtypes(s: &str) -> Result<RTypes, ProtoError> {
+    let s = s.to_uppercase();
+    util::parse_comma_separated(&s)
+}
+
 #[derive(StructOpt)]
 struct QueryOpt {
     #[structopt(flatten)]
     common: CommonOpt,
     entry: rr::Name,
-    #[structopt(long = "type", short = "t")]
-    record_types: Option<CommaSeparated<rr::RecordType>>,
+    #[structopt(long = "type", short = "t", parse(try_from_str = parse_rtypes))]
+    record_types: Option<RTypes>,
 }
 
 impl QueryOpt {
