@@ -8,6 +8,7 @@ use futures::{future, Future};
 
 use trust_dns::{
     client::ClientHandle,
+    op,
     proto::xfer::{DnsHandle, DnsResponse},
     rr,
 };
@@ -128,13 +129,32 @@ fn write_record<W: io::Write>(
     Ok(())
 }
 
-pub fn print_dns_response(responses: &[DnsResponse], options: &Query) -> io::Result<()> {
+// Prints the DNS responses, and returns the number of responses which failed.
+pub fn print_query_response(responses: &[DnsResponse], options: &Query) -> io::Result<usize> {
     let mut stdout = io::stdout();
+    let mut n_failed = 0;
     for response in responses {
         for answer in response.answers() {
             write_record(&mut stdout, answer, options.display_format)?;
             stdout.write_all(b"\n")?;
         }
+        let code = response.response_code();
+        if code != op::ResponseCode::NoError {
+            // Note that the number of queries is almost certainly 1, as
+            // multiple queries are possible by protocol, but seem to be
+            // universally non-implemented.
+            for query in response.queries() {
+                // TODO: would be nice to see which server was queried.
+                eprintln!(
+                    r#"Query "{} {} {}" failed: {}"#,
+                    query.name(),
+                    query.query_class(),
+                    query.query_type(),
+                    code
+                );
+            }
+            n_failed += 1;
+        }
     }
-    Ok(())
+    Ok(n_failed)
 }

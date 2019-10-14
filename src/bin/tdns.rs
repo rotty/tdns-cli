@@ -16,7 +16,7 @@ use tokio::runtime::current_thread::Runtime;
 use trust_dns::{proto::error::ProtoError, rr};
 
 use tdns_cli::{
-    query::{self, perform_query, print_dns_response, Query},
+    query::{self, perform_query, print_query_response, Query},
     record::{RecordSet, RsData},
     tsig,
     update::{monitor_update, perform_update, Expectation, Monitor, Operation, Update},
@@ -336,10 +336,16 @@ fn run_query<D: DnsOpen + 'static>(
 ) -> Result<Box<dyn Future<Item = (), Error = failure::Error>>, failure::Error> {
     let resolver = dns.open(runtime.clone(), opt.common.get_resolver_addr()?);
     let query = opt.to_query()?;
-    Ok(Box::new(
-        perform_query(resolver, query.clone())
-            .and_then(move |r| Ok(print_dns_response(&r, &query)?)),
-    ))
+    Ok(Box::new(perform_query(resolver, query.clone()).and_then(
+        move |r| {
+            let n_failures = print_query_response(&r, &query)?;
+            if n_failures == 0 {
+                Ok(())
+            } else {
+                Err(format_err!("{}/{} queries failed", n_failures, r.len()))
+            }
+        },
+    )))
 }
 
 fn run(tdns: Tdns) -> Result<(), failure::Error> {
@@ -368,7 +374,7 @@ fn main() {
     let rc = match run(tdns) {
         Ok(_) => 0,
         Err(e) => {
-            eprintln!("error: {}", e);
+            eprintln!("Error: {}", e);
             1
         }
     };
