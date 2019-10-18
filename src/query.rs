@@ -4,7 +4,8 @@ use std::{
     str::FromStr,
 };
 
-use futures::{future, Future};
+use futures::future;
+use futures_util::TryFutureExt;
 
 use trust_dns::{
     client::ClientHandle,
@@ -52,16 +53,17 @@ pub struct Query {
     pub display_format: DisplayFormat,
 }
 
-pub fn perform_query(
+pub async fn perform_query(
     mut resolver: impl DnsHandle,
     options: Query,
-) -> impl Future<Item = Vec<DnsResponse>, Error = failure::Error> {
+) -> Result<Vec<DnsResponse>, failure::Error> {
     let entry = options.entry;
-    future::join_all(options.record_types.into_iter().map(move |rtype| {
+    future::try_join_all(options.record_types.into_iter().map(move |rtype| {
         resolver
             .query(entry.clone(), rr::DNSClass::IN, rtype)
             .map_err(Into::into)
     }))
+    .await
 }
 
 fn write_rdata<W: io::Write>(writer: &mut W, rdata: &rr::RData) -> io::Result<()> {

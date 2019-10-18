@@ -29,14 +29,16 @@ use:
 cargo install tdns-cli
 ```
 
-Alternatively, you can run it directly from the source checkout:
+Alternatively, you can run it directly from the source checkout, note
+that the master branch is using `async/await`, which requires Rust
+1.39, currently in beta; so you need the beta toolchain.
 
 ```sh
-cargo run -- --help
+cargo +beta run -- --help
 ```
 
-To install from locally checked-out source, use `cargo install --path
-.`, which will end up installing the executable in
+To install from locally checked-out source, use `cargo +beta install
+--path .`, which will end up installing the executable in
 `~/.cargo/bin/tdns`, which should already be in your `PATH`
 environment variable, if you followed the Rust toolchain installations
 instructions.

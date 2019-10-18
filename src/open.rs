@@ -1,8 +1,8 @@
 /// An abstraction over different ways to do DNS queries.
 use std::net::SocketAddr;
 
-use tokio_tcp::TcpStream;
-use tokio_udp::UdpSocket;
+use tokio::net::TcpStream;
+use tokio::net::UdpSocket;
 use trust_dns::{
     client::{BasicClientHandle, ClientFuture, ClientHandle},
     proto::{udp::UdpResponse, xfer::dns_multiplexer::DnsMultiplexerSerialResponse},
@@ -34,7 +34,7 @@ impl DnsOpen for TcpOpen {
 pub struct UdpOpen;
 
 impl DnsOpen for UdpOpen {
-    type Client = BasicClientHandle<UdpResponse<tokio_udp::UdpSocket>>;
+    type Client = BasicClientHandle<UdpResponse>;
     fn open(&mut self, runtime: RuntimeHandle, addr: SocketAddr) -> Self::Client {
         let stream = UdpClientStream::<UdpSocket>::new(addr);
         let (bg, client) = ClientFuture::connect(stream);

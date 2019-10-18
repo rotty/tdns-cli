@@ -1,12 +1,15 @@
-use std::time::{Duration, Instant};
+use std::{
+    pin::Pin,
+    time::{Duration, Instant},
+};
 
-use futures::{future, prelude::*};
+use futures::{prelude::*, stream::FuturesUnordered};
 use tdns_cli::{
     record::RecordSet,
     update::{monitor_update, perform_update, Expectation, Monitor, Operation, Update},
     DnsOpen,
 };
-use tokio::{runtime::current_thread::Runtime, timer::Delay};
+use tokio::{runtime::current_thread::Runtime, timer::delay};
 use trust_dns::rr;
 
 mod mock;
@@ -144,8 +147,7 @@ fn test_create_immediate() {
             "foo.example.org".parse().unwrap(),
             "A:192.168.1.2".parse().unwrap(),
         ))),
-    )
-    .unwrap();
+    );
     let monitor = monitor_update(
         runtime.handle(),
         dns,
@@ -168,25 +170,22 @@ fn test_create_delayed() {
             "foo.example.org".parse().unwrap(),
             "A:192.168.1.2".parse().unwrap(),
         )),
-    )
-    .unwrap();
-    let updated = rr::Record::from_rdata(
-        "foo.example.org".parse().unwrap(),
-        0,
-        parse_rdata("A", "192.168.1.2").unwrap(),
     );
-    let update_auth = Delay::new(Instant::now() + TIMEOUT / 2)
-        .map(|_| {
-            let mut zone = zone.lock().unwrap();
-            zone.update(&updated);
-        })
-        .map_err(Into::into);
-    runtime
-        .block_on(future::join_all(vec![
-            Box::new(update) as Box<dyn Future<Item = (), Error = failure::Error>>,
-            Box::new(update_auth),
-        ]))
-        .unwrap();
+    async fn update_auth(zone: mock::Handle<mock::Zone>) -> Result<(), failure::Error> {
+        delay(Instant::now() + TIMEOUT / 2).await;
+        let updated = rr::Record::from_rdata(
+            "foo.example.org".parse().unwrap(),
+            0,
+            parse_rdata("A", "192.168.1.2").unwrap(),
+        );
+        let mut zone = zone.lock().unwrap();
+        zone.update(&updated);
+        Ok(())
+    }
+    let mut parallel = FuturesUnordered::new();
+    parallel.push(Box::pin(update) as Pin<Box<dyn Future<Output = Result<(), failure::Error>>>>);
+    parallel.push(Box::pin(update_auth(zone)));
+    runtime.block_on(parallel.try_collect::<Vec<_>>()).unwrap();
 }
 
 #[test]
@@ -202,8 +201,7 @@ fn test_delete() {
             "foo.example.org".parse().unwrap(),
             "A:192.168.1.1".parse().unwrap(),
         )),
-    )
-    .unwrap();
+    );
     let monitor = monitor_update(runtime.handle(), dns, resolver, monitor_settings("A"));
     runtime.block_on(update.and_then(|_| monitor)).unwrap();
 }

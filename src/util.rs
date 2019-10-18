@@ -6,10 +6,6 @@ use std::{
 };
 
 use failure::format_err;
-use futures::{
-    future::{self, Either},
-    Future,
-};
 use trust_dns::{
     client::ClientHandle,
     op::DnsResponse,
@@ -35,20 +31,19 @@ pub enum SocketName {
 }
 
 impl SocketName {
-    pub fn resolve(
+    pub async fn resolve(
         &self,
         resolver: impl DnsHandle,
         default_port: u16,
-    ) -> impl Future<Item = SocketAddr, Error = failure::Error> {
+    ) -> Result<SocketAddr, failure::Error> {
         match self {
             SocketName::HostName(name, port) => {
                 let port = port.unwrap_or(default_port);
-                Either::A(
-                    resolve_ip(resolver, name.clone()).map(move |ip| SocketAddr::new(ip, port)),
-                )
+                let ip = resolve_ip(resolver, name.clone()).await?;
+                Ok(SocketAddr::new(ip, port))
             }
-            SocketName::IpAddr(addr) => Either::B(future::ok(SocketAddr::new(*addr, default_port))),
-            SocketName::SocketAddr(addr) => Either::B(future::ok(*addr)),
+            SocketName::IpAddr(addr) => Ok(SocketAddr::new(*addr, default_port)),
+            SocketName::SocketAddr(addr) => Ok(*addr),
         }
     }
 }
@@ -110,65 +105,61 @@ pub fn get_system_resolver() -> Option<SocketAddr> {
     })
 }
 
-pub fn dns_query(
+pub async fn dns_query(
     mut recursor: impl ClientHandle,
     query: Query,
-) -> impl Future<Item = DnsResponse, Error = failure::Error> {
-    use future::Loop;
+) -> Result<DnsResponse, failure::Error> {
     const MAX_TRIES: usize = 3;
-    future::loop_fn(0, move |count| {
-        let run_query = recursor.lookup(query.clone(), Default::default());
-        let name = query.name().clone();
-        run_query.then(move |result| match result {
-            Ok(addrs) => future::ok(Loop::Break(addrs)),
-            Err(_) if count < MAX_TRIES => future::ok(Loop::Continue(count + 1)),
-            Err(e) => future::err(format_err!(
-                "could not resolve server name '{}' (max retries reached): {}",
-                name,
-                e
-            )),
-        })
-    })
+    let mut count = 1;
+    loop {
+        match recursor.lookup(query.clone(), Default::default()).await {
+            Ok(addrs) => return Ok(addrs),
+            Err(e) if count == MAX_TRIES => {
+                return Err(format_err!(
+                    "could not resolve server name '{}' (max retries reached): {}",
+                    query.name(),
+                    e
+                ))
+            }
+            Err(_) => {}
+        }
+        count += 1;
+    }
 }
 
-pub fn query_ip_addr(
+pub async fn query_ip_addr(
     recursor: impl ClientHandle,
     name: rr::Name,
-) -> impl Future<Item = Vec<IpAddr>, Error = failure::Error> + 'static {
+) -> Result<Vec<IpAddr>, failure::Error> {
     // FIXME: IPv6
-    dns_query(recursor, Query::query(name, RecordType::A)).map(|response| {
-        response
-            .answers()
-            .iter()
-            .filter_map(|r| r.rdata().to_ip_addr())
-            .collect()
-    })
+    let response = dns_query(recursor, Query::query(name, RecordType::A)).await?;
+    Ok(response
+        .answers()
+        .iter()
+        .filter_map(|r| r.rdata().to_ip_addr())
+        .collect())
 }
 
-pub fn get_ns_records<R>(
-    recursor: R,
-    domain: rr::Name,
-) -> impl Future<Item = Vec<Record>, Error = failure::Error>
+pub async fn get_ns_records<R>(recursor: R, domain: rr::Name) -> Result<Vec<Record>, failure::Error>
 where
     R: ClientHandle,
 {
-    dns_query(recursor, Query::query(domain, RecordType::NS))
-        .map(|response| response.answers().to_vec())
+    let response = dns_query(recursor, Query::query(domain, RecordType::NS)).await?;
+    Ok(response.answers().to_vec())
 }
 
-pub fn resolve_ip(
+pub async fn resolve_ip(
     recursor: impl ClientHandle,
     server_name: rr::Name,
-) -> impl Future<Item = IpAddr, Error = failure::Error> {
-    query_ip_addr(recursor.clone(), server_name.clone()).and_then(move |addrs| {
-        // TODO: handle multiple addresses
-        if let Some(addr) = addrs.first().cloned() {
-            Ok(addr)
-        } else {
-            Err(format_err!(
-                "could not resolve server '{}': no addresses found",
-                server_name
-            ))
-        }
-    })
+) -> Result<IpAddr, failure::Error> {
+    let addrs = query_ip_addr(recursor.clone(), server_name.clone()).await?;
+    // TODO: handle multiple addresses
+    if let Some(addr) = addrs.first().cloned() {
+        Ok(addr)
+    } else {
+        Err(format_err!(
+            "could not resolve server '{}': no addresses found",
+            server_name
+        ))
+    }
 }

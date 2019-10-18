@@ -6,7 +6,7 @@ use std::{
 };
 
 use failure::format_err;
-use futures::future::{self, FutureResult};
+use futures::future::{self};
 use trust_dns::{
     op::update_message::UpdateMessage,
     proto::{
@@ -21,6 +21,7 @@ use trust_dns::{
 use tdns_cli::{DnsOpen, RuntimeHandle};
 
 pub type Handle<T> = Arc<Mutex<T>>;
+pub type FutureResult<T, E> = future::Ready<Result<T, E>>;
 
 #[derive(Debug, Clone)]
 pub struct Zone(Vec<rr::Record>);

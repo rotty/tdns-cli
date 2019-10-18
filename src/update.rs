@@ -7,16 +7,13 @@ use std::{
 };
 
 use failure::format_err;
-use futures::{
-    future::{self, Either},
-    Future,
-};
-use tokio::{prelude::*, timer::Delay};
+use futures::stream::{FuturesUnordered, TryStreamExt};
+use tokio::timer::{delay, Timeout};
 use trust_dns::{
     client::ClientHandle,
-    op::{DnsResponse, Message, Query},
+    op::{Message, Query},
     proto::xfer::{DnsHandle, DnsRequestOptions},
-    rr::{self, Record},
+    rr,
 };
 
 use crate::{
@@ -159,178 +156,137 @@ impl fmt::Display for Expectation {
     }
 }
 
-pub fn perform_update<D>(
+pub async fn perform_update<D>(
     runtime: RuntimeHandle,
     mut dns: D,
     mut resolver: D::Client,
     options: Update,
-) -> Result<impl Future<Item = (), Error = failure::Error>, failure::Error>
+) -> Result<(), failure::Error>
 where
     D: DnsOpen,
 {
     let message = options.get_update()?;
-    let get_master = if let Some(sockname) = options.server {
-        Box::new(sockname.resolve(resolver, 53))
-            as Box<dyn Future<Item = SocketAddr, Error = failure::Error>>
-    } else {
-        let get_soa = resolver
+    let master = if let Some(sockname) = options.server {
+        sockname.resolve(resolver, 53).await?
+    } else if let Some(soa) = resolver
             .query(options.zone.clone(), rr::DNSClass::IN, rr::RecordType::SOA)
-            .map_err(failure::Error::from);
-        let settings = options.clone();
-        let resolver = resolver.clone();
-        let resolve = get_soa.and_then(move |response| {
-            if let Some(soa) = response
-                .answers()
-                .first()
-                .and_then(|rr| rr.rdata().as_soa())
-            {
-                Either::A(
-                    util::SocketName::HostName(soa.mname().clone(), None).resolve(resolver, 53),
-                )
-            } else {
-                Either::B(future::err(format_err!(
-                    "SOA record for {} not found",
-                    settings.zone
-                )))
-            }
-        });
-        Box::new(resolve)
+            .await?
+            .answers()
+            .first()
+            .and_then(|rr| rr.rdata().as_soa())
+    {
+        util::SocketName::HostName(soa.mname().clone(), None)
+            .resolve(resolver, 53)
+            .await?
+    } else {
+        return Err(format_err!("SOA record for {} not found", options.zone));
     };
-    let update = get_master
-        .and_then(move |master| {
-            let mut server = dns.open(runtime.clone(), master);
-            server.send(message).map_err(Into::into)
-        })
-        .map(|_| ()); // TODO: probably should check response
-    Ok(update)
+    let mut server = dns.open(runtime.clone(), master);
+    // TODO: probably should check response
+    server.send(message).await?;
+    Ok(())
 }
 
-pub fn monitor_update<D>(
+pub async fn monitor_update<D>(
     runtime: RuntimeHandle,
     dns: D,
     resolver: D::Client,
     options: Monitor,
-) -> impl Future<Item = (), Error = failure::Error>
+) -> Result<(), failure::Error>
 where
     D: DnsOpen,
 {
     let options = Rc::new(options);
-    let get_authorative =
-        util::get_ns_records(resolver.clone(), options.zone.clone()).map_err(failure::Error::from);
-    let poll_servers = {
-        let options = Rc::clone(&options);
-        get_authorative.and_then(move |authorative| {
-            let names = authorative
-                .into_iter()
-                .filter_map(|r| r.rdata().as_ns().cloned());
-            poll_for_update(runtime, dns, resolver, names, options)
-        })
-    };
-    poll_servers
-        .timeout(options.timeout)
-        .map_err(|e| {
-            e.into_inner().unwrap_or_else(move || {
-                format_err!(
-                    "timeout; update not complete within {}ms",
-                    options.timeout.as_millis()
-                )
-            })
-        })
-        .map(|_| ())
+    let authorative = util::get_ns_records(resolver.clone(), options.zone.clone()).await?;
+    let names = authorative
+        .into_iter()
+        .filter_map(|r| r.rdata().as_ns().cloned());
+    match Timeout::new(
+        poll_for_update(runtime, dns, resolver, names, Rc::clone(&options)),
+        options.timeout,
+    )
+    .await?
+    {
+        Ok(_) => Ok(()),
+        Err(_) => Err(format_err!(
+            "timeout; update not complete within {}ms",
+            options.timeout.as_millis()
+        )),
+    }
 }
 
-fn poll_for_update<D, I>(
+async fn poll_for_update<D, I>(
     runtime: RuntimeHandle,
     dns: D,
     resolver: D::Client,
     authorative: I,
     options: Rc<Monitor>,
-) -> impl Future<Item = (), Error = failure::Error>
+) -> Result<(), failure::Error>
 where
     I: IntoIterator<Item = rr::Name>,
     D: DnsOpen,
 {
-    future::join_all(authorative.into_iter().map(move |server_name| {
-        let handle = runtime.clone();
-        let server_name = server_name.clone();
-        let inner_options = Rc::clone(&options);
-        let mut dns = dns.clone();
-        let resolve = util::resolve_ip(resolver.clone(), server_name.clone()).map(move |ip| {
-            if inner_options.exclude.contains(&ip) {
-                None
-            } else {
-                Some(dns.open(handle.clone(), SocketAddr::new(ip, 53)))
-            }
-        });
-        let server_name = server_name.clone();
-        let options = Rc::clone(&options);
-        resolve.and_then(move |maybe_server| match maybe_server {
-            None => Either::A(future::ok(())),
-            Some(server) => Either::B(poll_server(server.clone(), server_name, options)),
+    let results: FuturesUnordered<_> = authorative
+        .into_iter()
+        .map(move |server_name| {
+            poll_server(
+                runtime.clone(),
+                dns.clone(),
+                resolver.clone(),
+                server_name.clone(),
+                Rc::clone(&options),
+            )
         })
-    }))
-    .map(|_| ())
+        .collect();
+    results.try_collect().await?;
+    Ok(())
 }
 
-fn poll_entries<F>(
-    mut server: impl ClientHandle,
+async fn poll_server<D>(
+    runtime: RuntimeHandle,
+    mut dns: D,
+    resolver: D::Client,
     server_name: rr::Name,
-    settings: Rc<Monitor>,
-    report: F,
-) -> impl Future<Item = (), Error = failure::Error>
+    options: Rc<Monitor>,
+) -> Result<(), failure::Error>
 where
-    F: Fn(&rr::Name, &[Record], bool) + 'static,
+    D: DnsOpen,
 {
-    use future::Loop;
-    future::loop_fn(report, move |report| {
-        let server_name = server_name.clone();
-        let settings = Rc::clone(&settings);
-        let query = settings.get_query();
-        server
-            .lookup(query, DnsRequestOptions::default())
-            .map_err(failure::Error::from)
-            .and_then(move |response: DnsResponse| {
-                let answers = response.answers();
-                let hit = settings.expectation.satisfied_by(answers);
-                report(&server_name, answers, hit);
+    let ip = util::resolve_ip(resolver.clone(), server_name.clone()).await?;
+    if options.exclude.contains(&ip) {
+        return Ok(());
+    }
+    let mut server = dns.open(runtime.clone(), SocketAddr::new(ip, 53));
+    let server_name = server_name.clone();
+    let options = Rc::clone(&options);
+    let query = options.get_query();
+    loop {
+        if let Ok(response) = server
+            .lookup(query.clone(), DnsRequestOptions::default())
+            .await
+        {
+            let answers = response.answers();
+            let hit = options.expectation.satisfied_by(answers);
+            if options.verbose {
                 if hit {
-                    Either::A(future::ok(Loop::Break(())))
+                    println!("{}: match found", &server_name);
                 } else {
-                    let when = Instant::now() + settings.interval;
-                    Either::B(
-                        Delay::new(when)
-                            .map_err(failure::Error::from)
-                            .map(|_| Loop::Continue(report)),
-                    )
-                }
-            })
-    })
-}
-
-fn poll_server(
-    server: impl ClientHandle,
-    server_name: rr::Name,
-    settings: Rc<Monitor>,
-) -> impl Future<Item = (), Error = failure::Error> {
-    poll_entries(
-        server,
-        server_name,
-        Rc::clone(&settings),
-        move |server, records, hit| {
-            if settings.verbose {
-                if hit {
-                    println!("{}: match found", server);
-                } else {
-                    let rset = match RecordSet::try_from(records) {
+                    let rset = match RecordSet::try_from(answers) {
                         Ok(rs) => format!("{}", rs.data()),
                         Err(e) => format!("{}", e),
                     };
                     println!(
                         "{}: records not matching: {}, found {}",
-                        server, settings.expectation, rset,
+                        server_name, options.expectation, rset,
                     );
                 }
             }
-        },
-    )
+            if hit {
+                return Ok(());
+            } else {
+                let when = Instant::now() + options.interval;
+                delay(when).await;
+            }
+        }
+    }
 }

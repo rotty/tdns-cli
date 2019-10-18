@@ -7,10 +7,6 @@ use std::{
 };
 
 use failure::format_err;
-use futures::{
-    future::{self, Either},
-    Future,
-};
 use structopt::StructOpt;
 use tokio::runtime::current_thread::Runtime;
 use trust_dns::{proto::error::ProtoError, rr};
@@ -307,71 +303,65 @@ fn read_key(path: &Path, key_name: Option<&rr::Name>) -> Result<tsig::Key, failu
     }
 }
 
-fn run_update<D: DnsOpen + 'static>(
+async fn run_update<D: DnsOpen + 'static>(
     runtime: RuntimeHandle,
     mut dns: D,
     opt: UpdateOpt,
-) -> Result<Box<dyn Future<Item = (), Error = failure::Error>>, failure::Error> {
+) -> Result<(), failure::Error> {
     let resolver = dns.open(runtime.clone(), opt.common.get_resolver_addr()?);
-    let maybe_update = match opt.to_update()? {
-        Some(update) => Either::A(perform_update(
-            runtime.clone(),
-            dns.clone(),
-            resolver.clone(),
-            update,
-        )?),
-        None => Either::B(future::ok(())),
-    };
-    let maybe_monitor = match opt.to_monitor()? {
-        Some(monitor) => Either::A(monitor_update(runtime, dns, resolver, monitor)),
-        None => Either::B(future::ok(())),
-    };
-    Ok(Box::new(maybe_update.and_then(|_| maybe_monitor)))
+    if let Some(update) = opt.to_update()? {
+        perform_update(runtime.clone(), dns.clone(), resolver.clone(), update).await?;
+    }
+    if let Some(monitor) = opt.to_monitor()? {
+        monitor_update(runtime, dns, resolver, monitor).await?;
+    }
+    Ok(())
 }
 
-fn run_query<D: DnsOpen + 'static>(
+async fn run_query<D: DnsOpen + 'static>(
     runtime: RuntimeHandle,
     mut dns: D,
     opt: QueryOpt,
-) -> Result<Box<dyn Future<Item = (), Error = failure::Error>>, failure::Error> {
+) -> Result<(), failure::Error> {
     let resolver = dns.open(runtime.clone(), opt.common.get_resolver_addr()?);
     let query = opt.to_query()?;
-    Ok(Box::new(perform_query(resolver, query.clone()).and_then(
-        move |r| {
-            let n_failures = print_query_response(&r, &query)?;
-            if n_failures == 0 {
-                Ok(())
-            } else {
-                Err(format_err!("{}/{} queries failed", n_failures, r.len()))
-            }
-        },
-    )))
+    let responses = perform_query(resolver, query.clone()).await?;
+    let n_failures = print_query_response(&responses, &query)?;
+    if n_failures == 0 {
+        Ok(())
+    } else {
+        Err(format_err!(
+            "{}/{} queries failed",
+            n_failures,
+            responses.len()
+        ))
+    }
 }
 
-fn run(tdns: Tdns) -> Result<(), failure::Error> {
-    let mut runtime = Runtime::new().unwrap();
-    let app = match tdns {
+async fn run(runtime: RuntimeHandle, tdns: Tdns) -> Result<(), failure::Error> {
+    match tdns {
         Tdns::Query(opt) => {
             if opt.common.tcp {
-                run_query(runtime.handle(), TcpOpen, opt)?
+                run_query(runtime, TcpOpen, opt).await?
             } else {
-                run_query(runtime.handle(), UdpOpen, opt)?
+                run_query(runtime, UdpOpen, opt).await?
             }
         }
         Tdns::Update(opt) => {
             if opt.common.tcp {
-                run_update(runtime.handle(), TcpOpen, opt)?
+                run_update(runtime, TcpOpen, opt).await?
             } else {
-                run_update(runtime.handle(), UdpOpen, opt)?
+                run_update(runtime, UdpOpen, opt).await?
             }
         }
-    };
-    runtime.block_on(app)
+    }
+    Ok(())
 }
 
 fn main() {
+    let mut runtime = Runtime::new().unwrap();
     let tdns = Tdns::from_args();
-    let rc = match run(tdns) {
+    let rc = match runtime.block_on(run(runtime.handle(), tdns)) {
         Ok(_) => 0,
         Err(e) => {
             eprintln!("Error: {}", e);
