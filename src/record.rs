@@ -43,7 +43,7 @@ impl RecordSet {
     }
 
     pub fn to_rrset(&self, ttl: u32) -> rr::RecordSet {
-        let mut rrset = rr::RecordSet::new(&self.name, self.record_type(), ttl);
+        let mut rrset = rr::RecordSet::with_ttl(self.name.clone(), self.record_type(), ttl);
         for data in self.iter_data() {
             rrset.add_rdata(data);
         }
