@@ -6,6 +6,7 @@ use std::{
     time::Duration,
 };
 
+use data_encoding::BASE64;
 use failure::format_err;
 use futures::{future, StreamExt};
 use structopt::StructOpt;
@@ -202,7 +203,7 @@ impl UpdateOpt {
                     Ok(Some(tsig::Key::new(
                         name.parse()?,
                         tsig::Algorithm::from_name(&algo.parse()?)?,
-                        base64::decode(data)?,
+                        BASE64.decode(data.as_bytes())?,
                     )))
                 }
                 _ => Err(format_err!(
@@ -290,7 +291,7 @@ fn read_key(path: &Path, key_name: Option<&rr::Name>) -> Result<tsig::Key, failu
             return Ok(tsig::Key::new(
                 name,
                 tsig::Algorithm::from_name(&algo.parse()?)?,
-                base64::decode(data)?,
+                BASE64.decode(data.as_bytes())?,
             ));
         }
     }
