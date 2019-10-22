@@ -7,13 +7,13 @@ use futures::{prelude::*, stream::FuturesUnordered};
 use tdns_cli::{
     record::RecordSet,
     update::{monitor_update, perform_update, Expectation, Monitor, Operation, Update},
-    DnsOpen,
+    Backend,
 };
 use tokio::{runtime::current_thread::Runtime, timer::delay};
 use trust_dns::rr;
 
 mod mock;
-use mock::{parse_rdata, ZoneEntries};
+use mock::{parse_rdata, MockBackend, ZoneEntries};
 
 const TIMEOUT: Duration = Duration::from_millis(10);
 
@@ -47,7 +47,7 @@ fn update_settings(operation: Operation) -> Update {
     }
 }
 
-fn mock_dns(master_data: ZoneEntries) -> (mock::Open, mock::Handle<mock::Server>) {
+fn mock_dns(master_data: ZoneEntries) -> (MockBackend, mock::Handle<mock::Server>) {
     let rec_data: &[_] = &[
         (
             "example.org",
@@ -62,7 +62,7 @@ fn mock_dns(master_data: ZoneEntries) -> (mock::Open, mock::Handle<mock::Server>
     ];
     let rec_addr = "127.0.0.1:53".parse().unwrap();
     let master_addr = "192.0.32.162:53".parse().unwrap();
-    let mut mock = mock::Open::default();
+    let mut mock = MockBackend::default();
     mock.add_server(rec_addr, rec_data).unwrap();
     let master = mock.add_server(master_addr, master_data).unwrap();
     (mock, master)
@@ -72,7 +72,7 @@ fn mock_dns_fixed(
     master_data: ZoneEntries,
     auth1_data: ZoneEntries,
     auth2_data: ZoneEntries,
-) -> mock::Open {
+) -> MockBackend {
     let (mut dns, _) = mock_dns(master_data);
     let auth1_addr = "199.43.135.53:53".parse().unwrap();
     let auth2_addr = "199.43.133.53:53".parse().unwrap();
@@ -81,7 +81,7 @@ fn mock_dns_fixed(
     dns
 }
 
-fn mock_dns_shared(master_data: ZoneEntries) -> (mock::Open, mock::Handle<mock::Zone>) {
+fn mock_dns_shared(master_data: ZoneEntries) -> (MockBackend, mock::Handle<mock::Zone>) {
     let (mut dns, master) = mock_dns(master_data);
     let auth1_addr = "199.43.135.53:53".parse().unwrap();
     let auth2_addr = "199.43.133.53:53".parse().unwrap();
@@ -91,7 +91,7 @@ fn mock_dns_shared(master_data: ZoneEntries) -> (mock::Open, mock::Handle<mock::
     (dns, master.zone())
 }
 
-fn mock_dns_independent(master_data: ZoneEntries) -> (mock::Open, mock::Handle<mock::Zone>) {
+fn mock_dns_independent(master_data: ZoneEntries) -> (MockBackend, mock::Handle<mock::Zone>) {
     let (mut dns, _) = mock_dns(master_data);
     let auth1_addr = "199.43.135.53:53".parse().unwrap();
     let auth2_addr = "199.43.133.53:53".parse().unwrap();

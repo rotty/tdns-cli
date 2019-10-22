@@ -19,7 +19,7 @@ use crate::{
     record::{RecordSet, RsData},
     tsig, update_message,
     util::{self, SocketName},
-    DnsOpen, Resolver, RuntimeHandle,
+    Backend, Resolver, RuntimeHandle,
 };
 
 #[derive(Debug, Clone)]
@@ -162,7 +162,7 @@ pub async fn perform_update<D>(
     options: Update,
 ) -> Result<(), failure::Error>
 where
-    D: DnsOpen,
+    D: Backend,
     D::Resolver: 'static,
 {
     let message = options.get_update()?;
@@ -193,7 +193,7 @@ pub async fn monitor_update<D>(
     options: Monitor,
 ) -> Result<(), failure::Error>
 where
-    D: DnsOpen,
+    D: Backend,
 {
     let options = Rc::new(options);
     let authorative = resolver.lookup_ns(options.zone.clone()).await?;
@@ -220,7 +220,7 @@ async fn poll_for_update<D, I>(
 ) -> Result<(), failure::Error>
 where
     I: IntoIterator<Item = rr::Name>,
-    D: DnsOpen,
+    D: Backend,
 {
     let results: FuturesUnordered<_> = authorative
         .into_iter()
@@ -246,7 +246,7 @@ async fn poll_server<D>(
     options: Rc<Monitor>,
 ) -> Result<(), failure::Error>
 where
-    D: DnsOpen,
+    D: Backend,
 {
     let ip = resolver
         .lookup_ip(server_name.clone())

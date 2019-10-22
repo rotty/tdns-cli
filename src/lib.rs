@@ -5,6 +5,6 @@ pub mod update;
 pub mod update_message;
 pub mod util;
 
-mod open;
+mod backend;
 
-pub use open::{DnsOpen, Resolver, RuntimeHandle, TcpOpen, UdpOpen};
+pub use backend::{Backend, Resolver, RuntimeHandle, TcpBackend, UdpBackend};

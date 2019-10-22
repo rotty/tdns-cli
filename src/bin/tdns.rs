@@ -19,7 +19,7 @@ use tdns_cli::{
     record::{RecordSet, RsData},
     tsig,
     update::{monitor_update, perform_update, Expectation, Monitor, Operation, Update},
-    util, DnsOpen, RuntimeHandle, TcpOpen, UdpOpen,
+    util, Backend, RuntimeHandle, TcpBackend, UdpBackend,
 };
 
 /// DNS client utilities
@@ -306,7 +306,7 @@ fn read_key(path: &Path, key_name: Option<&rr::Name>) -> Result<tsig::Key, failu
     }
 }
 
-async fn run_update<D: DnsOpen + 'static>(
+async fn run_update<D: Backend + 'static>(
     runtime: RuntimeHandle,
     mut dns: D,
     opt: UpdateOpt,
@@ -321,7 +321,7 @@ async fn run_update<D: DnsOpen + 'static>(
     Ok(())
 }
 
-async fn run_query<D: DnsOpen + 'static>(
+async fn run_query<D: Backend + 'static>(
     runtime: RuntimeHandle,
     mut dns: D,
     opt: QueryOpt,
@@ -360,16 +360,16 @@ async fn run(runtime: RuntimeHandle, tdns: Tdns) -> Result<(), failure::Error> {
     match tdns {
         Tdns::Query(opt) => {
             if opt.common.tcp {
-                run_query(runtime, TcpOpen, opt).await?
+                run_query(runtime, TcpBackend, opt).await?
             } else {
-                run_query(runtime, UdpOpen, opt).await?
+                run_query(runtime, UdpBackend, opt).await?
             }
         }
         Tdns::Update(opt) => {
             if opt.common.tcp {
-                run_update(runtime, TcpOpen, opt).await?
+                run_update(runtime, TcpBackend, opt).await?
             } else {
-                run_update(runtime, UdpOpen, opt).await?
+                run_update(runtime, UdpBackend, opt).await?
             }
         }
     }

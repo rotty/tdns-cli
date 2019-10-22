@@ -23,7 +23,7 @@ use trust_dns_resolver::{
     lookup_ip::LookupIp,
 };
 
-use tdns_cli::{DnsOpen, Resolver, RuntimeHandle};
+use tdns_cli::{Backend, Resolver, RuntimeHandle};
 
 pub type Handle<T> = Arc<Mutex<T>>;
 pub type FutureResult<T, E> = future::Ready<Result<T, E>>;
@@ -98,11 +98,11 @@ impl<'a> TryFrom<ZoneEntries<'a>> for Zone {
 }
 
 #[derive(Clone, Default)]
-pub struct Open {
+pub struct MockBackend {
     servers: HashMap<SocketAddr, Handle<Server>>,
 }
 
-impl Open {
+impl MockBackend {
     pub fn add_server<T>(&mut self, addr: SocketAddr, zone: T) -> Result<Handle<Server>, T::Error>
     where
         T: TryInto<Zone>,
@@ -124,7 +124,7 @@ impl Open {
     }
 }
 
-impl DnsOpen for Open {
+impl Backend for MockBackend {
     type Client = Client;
     type Resolver = Client;
     fn open(&mut self, _runtime: RuntimeHandle, addr: SocketAddr) -> Self::Client {

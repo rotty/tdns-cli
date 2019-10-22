@@ -53,7 +53,7 @@ impl Resolver for AsyncResolver {
     }
 }
 
-pub trait DnsOpen: Clone {
+pub trait Backend: Clone {
     type Client: ClientHandle;
     type Resolver: Resolver;
     fn open(&mut self, runtime: RuntimeHandle, addr: SocketAddr) -> Self::Client;
@@ -61,9 +61,9 @@ pub trait DnsOpen: Clone {
 }
 
 #[derive(Debug, Clone)]
-pub struct TcpOpen;
+pub struct TcpBackend;
 
-impl DnsOpen for TcpOpen {
+impl Backend for TcpBackend {
     type Client = BasicClientHandle<DnsMultiplexerSerialResponse>;
     type Resolver = AsyncResolver;
 
@@ -80,9 +80,9 @@ impl DnsOpen for TcpOpen {
 }
 
 #[derive(Debug, Clone)]
-pub struct UdpOpen;
+pub struct UdpBackend;
 
-impl DnsOpen for UdpOpen {
+impl Backend for UdpBackend {
     type Client = BasicClientHandle<UdpResponse>;
     type Resolver = AsyncResolver;
 
