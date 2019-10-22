@@ -1,5 +1,5 @@
 use std::{
-    fmt, fs,
+    fmt,
     net::{IpAddr, SocketAddr},
     num::ParseIntError,
     str::FromStr,
@@ -99,14 +99,4 @@ pub enum ParseSocketNameError {
     Invalid,
     Name(ProtoError),
     Port(ParseIntError),
-}
-
-pub fn get_system_resolver() -> Option<SocketAddr> {
-    use resolv_conf::{Config, ScopedIp};
-    let resolv_conf = fs::read("/etc/resolv.conf").ok()?;
-    let config = Config::parse(&resolv_conf).ok()?;
-    config.nameservers.iter().find_map(|scoped| match scoped {
-        ScopedIp::V4(v4) => Some(SocketAddr::new(v4.clone().into(), 53)),
-        ScopedIp::V6(v6, _) => Some(SocketAddr::new(v6.clone().into(), 53)),
-    })
 }

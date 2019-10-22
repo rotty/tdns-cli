@@ -18,7 +18,7 @@ use trust_dns::{
     },
 };
 use trust_dns_resolver::{
-    error::ResolveError,
+    error::{ResolveError, ResolveErrorKind},
     lookup::{Lookup, NsLookup, SoaLookup},
     lookup_ip::LookupIp,
 };
@@ -99,6 +99,7 @@ impl<'a> TryFrom<ZoneEntries<'a>> for Zone {
 
 #[derive(Clone, Default)]
 pub struct MockBackend {
+    resolv_conf: Option<SocketAddr>,
     servers: HashMap<SocketAddr, Handle<Server>>,
 }
 
@@ -136,6 +137,16 @@ impl Backend for MockBackend {
     }
     fn open_resolver(&mut self, runtime: RuntimeHandle, addr: SocketAddr) -> Self::Resolver {
         self.open(runtime, addr)
+    }
+    fn open_system_resolver(
+        &mut self,
+        runtime: RuntimeHandle,
+    ) -> Result<Self::Resolver, ResolveError> {
+        if let Some(addr) = self.resolv_conf {
+            Ok(self.open(runtime, addr))
+        } else {
+            Err(ResolveErrorKind::Message("no system resolver address configured").into())
+        }
     }
 }
 

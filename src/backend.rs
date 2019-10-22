@@ -58,6 +58,10 @@ pub trait Backend: Clone {
     type Resolver: Resolver;
     fn open(&mut self, runtime: RuntimeHandle, addr: SocketAddr) -> Self::Client;
     fn open_resolver(&mut self, runtime: RuntimeHandle, addr: SocketAddr) -> Self::Resolver;
+    fn open_system_resolver(
+        &mut self,
+        runtime: RuntimeHandle,
+    ) -> Result<Self::Resolver, ResolveError>;
 }
 
 #[derive(Debug, Clone)]
@@ -77,6 +81,15 @@ impl Backend for TcpBackend {
     fn open_resolver(&mut self, runtime: RuntimeHandle, addr: SocketAddr) -> Self::Resolver {
         make_resolver(runtime, addr, Protocol::Tcp)
     }
+
+    fn open_system_resolver(
+        &mut self,
+        runtime: RuntimeHandle,
+    ) -> Result<Self::Resolver, ResolveError> {
+        let (resolver, bg) = AsyncResolver::from_system_conf()?;
+        runtime.spawn(bg).unwrap();
+        Ok(resolver)
+    }
 }
 
 #[derive(Debug, Clone)]
@@ -94,6 +107,15 @@ impl Backend for UdpBackend {
     }
     fn open_resolver(&mut self, runtime: RuntimeHandle, addr: SocketAddr) -> Self::Resolver {
         make_resolver(runtime, addr, Protocol::Udp)
+    }
+
+    fn open_system_resolver(
+        &mut self,
+        runtime: RuntimeHandle,
+    ) -> Result<Self::Resolver, ResolveError> {
+        let (resolver, bg) = AsyncResolver::from_system_conf()?;
+        runtime.spawn(bg).unwrap();
+        Ok(resolver)
     }
 }
 

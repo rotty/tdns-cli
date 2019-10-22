@@ -12,7 +12,7 @@ use futures::{future, StreamExt};
 use structopt::StructOpt;
 use tokio::runtime::current_thread::Runtime;
 use trust_dns::{proto::error::ProtoError, rr};
-use trust_dns_resolver::error::ResolveErrorKind;
+use trust_dns_resolver::error::{ResolveError, ResolveErrorKind};
 
 use tdns_cli::{
     query::{self, perform_query, Query},
@@ -42,14 +42,6 @@ struct CommonOpt {
     /// Use TCP for all DNS requests.
     #[structopt(long)]
     tcp: bool,
-}
-
-impl CommonOpt {
-    fn get_resolver_addr(&self) -> Result<SocketAddr, failure::Error> {
-        self.resolver
-            .or_else(util::get_system_resolver)
-            .ok_or_else(|| format_err!("could not obtain resolver address from operating system"))
-    }
 }
 
 // This is just so that `structopt` does not treat options of this type as
@@ -306,12 +298,24 @@ fn read_key(path: &Path, key_name: Option<&rr::Name>) -> Result<tsig::Key, failu
     }
 }
 
-async fn run_update<D: Backend + 'static>(
+fn open_resolver<D: Backend + 'static>(
     runtime: RuntimeHandle,
     mut dns: D,
+    addr: Option<SocketAddr>,
+) -> Result<D::Resolver, ResolveError> {
+    if let Some(addr) = addr {
+        Ok(dns.open_resolver(runtime, addr))
+    } else {
+        Ok(dns.open_system_resolver(runtime)?)
+    }
+}
+
+async fn run_update<D: Backend + 'static>(
+    runtime: RuntimeHandle,
+    dns: D,
     opt: UpdateOpt,
 ) -> Result<(), failure::Error> {
-    let resolver = dns.open_resolver(runtime.clone(), opt.common.get_resolver_addr()?);
+    let resolver = open_resolver(runtime.clone(), dns.clone(), opt.common.resolver)?;
     if let Some(update) = opt.to_update()? {
         perform_update(runtime.clone(), dns.clone(), resolver.clone(), update).await?;
     }
@@ -323,10 +327,10 @@ async fn run_update<D: Backend + 'static>(
 
 async fn run_query<D: Backend + 'static>(
     runtime: RuntimeHandle,
-    mut dns: D,
+    dns: D,
     opt: QueryOpt,
 ) -> Result<(), failure::Error> {
-    let resolver = dns.open_resolver(runtime.clone(), opt.common.get_resolver_addr()?);
+    let resolver = open_resolver(runtime.clone(), dns.clone(), opt.common.resolver)?;
     let query = opt.to_query()?;
     let (n_failed, total) = perform_query(resolver, query.clone())
         .fold((0_usize, 0_usize), |(n_failed, total), item| {
