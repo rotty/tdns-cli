@@ -9,7 +9,7 @@ use std::{
 use failure::format_err;
 use futures::stream::{FuturesUnordered, TryStreamExt};
 use tokio::timer::{delay, Timeout};
-use trust_dns::{
+use trust_dns_client::{
     op::{Message, Query},
     proto::xfer::{DnsHandle, DnsRequestOptions},
     rr,

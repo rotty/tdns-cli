@@ -7,7 +7,7 @@ use std::{
     string::FromUtf8Error,
 };
 
-use trust_dns::rr::{self, rdata};
+use trust_dns_client::rr::{self, rdata};
 
 /// This is a representation of the record set as described in RFC 2136.
 ///

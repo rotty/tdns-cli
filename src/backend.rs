@@ -4,7 +4,7 @@ use std::net::SocketAddr;
 use futures::Future;
 use tokio::net::TcpStream;
 use tokio::net::UdpSocket;
-use trust_dns::{
+use trust_dns_client::{
     client::{BasicClientHandle, ClientFuture, ClientHandle},
     proto::{udp::UdpResponse, xfer::dns_multiplexer::DnsMultiplexerSerialResponse},
     rr,

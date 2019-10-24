@@ -10,7 +10,7 @@ use tdns_cli::{
     Backend,
 };
 use tokio::{runtime::current_thread::Runtime, timer::delay};
-use trust_dns::rr;
+use trust_dns_client::rr;
 
 mod mock;
 use mock::{parse_rdata, MockBackend, ZoneEntries};

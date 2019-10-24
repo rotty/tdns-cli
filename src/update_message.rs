@@ -1,4 +1,4 @@
-use trust_dns::{
+use trust_dns_client::{
     op::{Message, MessageType, OpCode, Query, UpdateMessage},
     rr::{rdata::NULL, DNSClass, Name, RData, Record, RecordSet, RecordType},
 };

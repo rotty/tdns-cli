@@ -8,7 +8,7 @@ use std::{
 use crypto_mac::InvalidKeyLength;
 use hmac::{Hmac, Mac};
 use once_cell::sync::Lazy;
-use trust_dns::{
+use trust_dns_client::{
     op,
     proto::error::{ProtoError, ProtoResult},
     rr,

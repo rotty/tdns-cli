@@ -11,7 +11,7 @@ use failure::format_err;
 use futures::{future, StreamExt};
 use structopt::StructOpt;
 use tokio::runtime::current_thread::Runtime;
-use trust_dns::{proto::error::ProtoError, rr};
+use trust_dns_client::{proto::error::ProtoError, rr};
 use trust_dns_resolver::error::{ResolveError, ResolveErrorKind};
 
 use tdns_cli::{

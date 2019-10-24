@@ -7,7 +7,7 @@ use std::{
 
 use failure::format_err;
 use futures::future;
-use trust_dns::{
+use trust_dns_client::{
     op::update_message::UpdateMessage,
     proto::{
         error::ProtoError,
