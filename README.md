@@ -1,4 +1,7 @@
-# tdns
+# tdns [![Build Status]][travis]
+
+[Build Status]: https://api.travis-ci.org/rotty/tdns-cli.svg?branch=master
+[travis]: https://travis-ci.org/rotty/tdns-cli
 
 A DNS client command-line tool, with aspirations to become a swiss
 army knife when it has grown up.
