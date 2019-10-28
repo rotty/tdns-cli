@@ -6,8 +6,10 @@ use std::{
 
 use chrono::NaiveDateTime;
 use data_encoding::{Encoding, BASE32, BASE64, HEXLOWER};
-use futures::stream::{FuturesUnordered, Stream};
-use futures_util::FutureExt;
+use futures::{
+    stream::{FuturesUnordered, Stream},
+    FutureExt,
+};
 
 use trust_dns_client::rr::{
     self,
