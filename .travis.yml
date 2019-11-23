@@ -1,7 +1,9 @@
 language: rust
 cache: cargo
 rust:
-  - beta # beta required due to async/await (will be release with Rust 1.39)
+  - 1.39.0 # required due to async/await
+  - stable
+  - beta
   - nightly
 os: linux
 
@@ -17,7 +19,7 @@ jobs:
   include:
     - stage: check # do a pre-screen to make sure this is even worth testing
       script: cargo check --all-targets
-      rust: beta
+      rust: stable
     # We lint using rustfmt and clippy on beta, to future-proof
     - stage: lint
       name: "Rust: beta, rustfmt"
