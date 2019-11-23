@@ -121,7 +121,7 @@ impl MockBackend {
             zone,
             query_log: Default::default(),
         }));
-        self.servers.insert(addr, server.clone());
+        self.servers.insert(addr, server);
     }
 }
 
