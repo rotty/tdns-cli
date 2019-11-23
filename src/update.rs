@@ -229,7 +229,7 @@ where
                 runtime.clone(),
                 dns.clone(),
                 resolver.clone(),
-                server_name.clone(),
+                server_name,
                 Rc::clone(&options),
             )
         })
