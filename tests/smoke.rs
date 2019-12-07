@@ -1,7 +1,4 @@
-use std::{
-    pin::Pin,
-    time::{Duration, Instant},
-};
+use std::{pin::Pin, time::Duration};
 
 use futures::{prelude::*, stream::FuturesUnordered};
 use tdns_cli::{
@@ -9,7 +6,7 @@ use tdns_cli::{
     update::{monitor_update, perform_update, Expectation, Monitor, Operation, Update},
     Backend,
 };
-use tokio::{runtime::current_thread::Runtime, timer::delay};
+use tokio::{runtime::Runtime, time::delay_for};
 use trust_dns_client::rr;
 
 mod mock;
@@ -105,9 +102,9 @@ fn mock_dns_independent(master_data: ZoneEntries) -> (MockBackend, mock::Handle<
 fn test_monitor_match() {
     let mut runtime = Runtime::new().unwrap();
     let (mut dns, _) = mock_dns_shared(&[("foo.example.org", "A", "192.168.1.1")]);
-    let resolver = dns.open(runtime.handle(), "127.0.0.1:53".parse().unwrap());
+    let resolver = dns.open(runtime.handle().clone(), "127.0.0.1:53".parse().unwrap());
     let monitor = monitor_update(
-        runtime.handle(),
+        runtime.handle().clone(),
         dns,
         resolver,
         monitor_settings("A:192.168.1.1"),
@@ -123,9 +120,9 @@ fn test_monitor_mismatch() {
         &[("foo.example.org", "A", "192.168.1.1")],
         &[("foo.example.org", "A", "192.168.1.2")],
     );
-    let resolver = dns.open(runtime.handle(), "127.0.0.1:53".parse().unwrap());
+    let resolver = dns.open(runtime.handle().clone(), "127.0.0.1:53".parse().unwrap());
     let monitor = monitor_update(
-        runtime.handle(),
+        runtime.handle().clone(),
         dns,
         resolver,
         monitor_settings("A:192.168.1.1"),
@@ -138,9 +135,9 @@ fn test_monitor_mismatch() {
 fn test_create_immediate() {
     let mut runtime = Runtime::new().unwrap();
     let (mut dns, _) = mock_dns_shared(&[("foo.example.org", "A", "192.168.1.1")]);
-    let resolver = dns.open(runtime.handle(), "127.0.0.1:53".parse().unwrap());
+    let resolver = dns.open(runtime.handle().clone(), "127.0.0.1:53".parse().unwrap());
     let update = perform_update(
-        runtime.handle(),
+        runtime.handle().clone(),
         dns.clone(),
         resolver.clone(),
         update_settings(Operation::Create(RecordSet::new(
@@ -149,7 +146,7 @@ fn test_create_immediate() {
         ))),
     );
     let monitor = monitor_update(
-        runtime.handle(),
+        runtime.handle().clone(),
         dns,
         resolver,
         monitor_settings("A:192.168.1.2"),
@@ -161,9 +158,9 @@ fn test_create_immediate() {
 fn test_create_delayed() {
     let mut runtime = Runtime::new().unwrap();
     let (mut dns, zone) = mock_dns_independent(&[("foo.example.org", "A", "192.168.1.1")]);
-    let resolver = dns.open(runtime.handle(), "127.0.0.1:53".parse().unwrap());
+    let resolver = dns.open(runtime.handle().clone(), "127.0.0.1:53".parse().unwrap());
     let update = perform_update(
-        runtime.handle(),
+        runtime.handle().clone(),
         dns,
         resolver,
         update_settings(Operation::create(
@@ -172,7 +169,7 @@ fn test_create_delayed() {
         )),
     );
     async fn update_auth(zone: mock::Handle<mock::Zone>) -> Result<(), failure::Error> {
-        delay(Instant::now() + TIMEOUT / 2).await;
+        delay_for(TIMEOUT / 2).await;
         let updated = rr::Record::from_rdata(
             "foo.example.org".parse().unwrap(),
             0,
@@ -182,7 +179,7 @@ fn test_create_delayed() {
         zone.update(&updated);
         Ok(())
     }
-    let mut parallel = FuturesUnordered::new();
+    let parallel = FuturesUnordered::new();
     parallel.push(Box::pin(update) as Pin<Box<dyn Future<Output = Result<(), failure::Error>>>>);
     parallel.push(Box::pin(update_auth(zone)));
     runtime.block_on(parallel.try_collect::<Vec<_>>()).unwrap();
@@ -192,9 +189,9 @@ fn test_create_delayed() {
 fn test_delete() {
     let mut runtime = Runtime::new().unwrap();
     let (mut dns, _) = mock_dns_shared(&[("foo.example.org", "A", "192.168.1.1")]);
-    let resolver = dns.open(runtime.handle(), "127.0.0.1:53".parse().unwrap());
+    let resolver = dns.open(runtime.handle().clone(), "127.0.0.1:53".parse().unwrap());
     let update = perform_update(
-        runtime.handle(),
+        runtime.handle().clone(),
         dns.clone(),
         resolver.clone(),
         update_settings(Operation::delete(
@@ -202,6 +199,11 @@ fn test_delete() {
             "A:192.168.1.1".parse().unwrap(),
         )),
     );
-    let monitor = monitor_update(runtime.handle(), dns, resolver, monitor_settings("A"));
+    let monitor = monitor_update(
+        runtime.handle().clone(),
+        dns,
+        resolver,
+        monitor_settings("A"),
+    );
     runtime.block_on(update.and_then(|_| monitor)).unwrap();
 }

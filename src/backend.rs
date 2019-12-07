@@ -17,7 +17,7 @@ use trust_dns_resolver::{
     lookup, lookup_ip, AsyncResolver, BackgroundLookup, BackgroundLookupIp,
 };
 
-pub type RuntimeHandle = tokio::runtime::current_thread::Handle;
+pub type RuntimeHandle = tokio::runtime::Handle;
 
 pub trait Resolver: Clone {
     type Lookup: Future<Output = Result<lookup::Lookup, ResolveError>>;
@@ -74,7 +74,7 @@ impl Backend for TcpBackend {
     fn open(&mut self, runtime: RuntimeHandle, addr: SocketAddr) -> Self::Client {
         let (connect, handle) = TcpClientStream::<TcpStream>::new(addr);
         let (bg, client) = ClientFuture::new(connect, handle, None);
-        runtime.spawn(bg).unwrap();
+        runtime.spawn(bg);
         client
     }
 
@@ -87,7 +87,7 @@ impl Backend for TcpBackend {
         runtime: RuntimeHandle,
     ) -> Result<Self::Resolver, ResolveError> {
         let (resolver, bg) = AsyncResolver::from_system_conf()?;
-        runtime.spawn(bg).unwrap();
+        runtime.spawn(bg);
         Ok(resolver)
     }
 }
@@ -102,7 +102,7 @@ impl Backend for UdpBackend {
     fn open(&mut self, runtime: RuntimeHandle, addr: SocketAddr) -> Self::Client {
         let stream = UdpClientStream::<UdpSocket>::new(addr);
         let (bg, client) = ClientFuture::connect(stream);
-        runtime.spawn(bg).unwrap();
+        runtime.spawn(bg);
         client
     }
     fn open_resolver(&mut self, runtime: RuntimeHandle, addr: SocketAddr) -> Self::Resolver {
@@ -114,7 +114,7 @@ impl Backend for UdpBackend {
         runtime: RuntimeHandle,
     ) -> Result<Self::Resolver, ResolveError> {
         let (resolver, bg) = AsyncResolver::from_system_conf()?;
-        runtime.spawn(bg).unwrap();
+        runtime.spawn(bg);
         Ok(resolver)
     }
 }
@@ -127,6 +127,6 @@ fn make_resolver(runtime: RuntimeHandle, addr: SocketAddr, protocol: Protocol) -
         tls_dns_name: None,
     });
     let (resolver, bg) = AsyncResolver::new(config, ResolverOpts::default());
-    runtime.spawn(bg).unwrap();
+    runtime.spawn(bg);
     resolver
 }

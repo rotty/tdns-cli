@@ -10,7 +10,7 @@ use data_encoding::BASE64;
 use failure::format_err;
 use futures::{future, StreamExt};
 use structopt::StructOpt;
-use tokio::runtime::current_thread::Runtime;
+use tokio::runtime::Runtime;
 use trust_dns_client::{proto::error::ProtoError, rr};
 use trust_dns_resolver::error::{ResolveError, ResolveErrorKind};
 
@@ -383,7 +383,7 @@ async fn run(runtime: RuntimeHandle, tdns: Tdns) -> Result<(), failure::Error> {
 fn main() {
     let mut runtime = Runtime::new().unwrap();
     let tdns = Tdns::from_args();
-    let rc = match runtime.block_on(run(runtime.handle(), tdns)) {
+    let rc = match runtime.block_on(run(runtime.handle().clone(), tdns)) {
         Ok(_) => 0,
         Err(e) => {
             eprintln!("Error: {}", e);
