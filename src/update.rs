@@ -3,12 +3,12 @@ use std::{
     fmt,
     net::{IpAddr, SocketAddr},
     rc::Rc,
-    time::{Duration, Instant},
+    time::Duration,
 };
 
 use failure::format_err;
 use futures::stream::{FuturesUnordered, TryStreamExt};
-use tokio::timer::{delay, Timeout};
+use tokio::time::{delay_for, timeout};
 use trust_dns_client::{
     op::{Message, Query},
     proto::xfer::{DnsHandle, DnsRequestOptions},
@@ -197,9 +197,9 @@ where
 {
     let options = Rc::new(options);
     let authorative = resolver.lookup_ns(options.zone.clone()).await?;
-    match Timeout::new(
-        poll_for_update(runtime, dns, resolver, authorative, Rc::clone(&options)),
+    match timeout(
         options.timeout,
+        poll_for_update(runtime, dns, resolver, authorative, Rc::clone(&options)),
     )
     .await?
     {
@@ -285,8 +285,7 @@ where
             if hit {
                 return Ok(());
             } else {
-                let when = Instant::now() + options.interval;
-                delay(when).await;
+                delay_for(options.interval).await;
             }
         }
     }
