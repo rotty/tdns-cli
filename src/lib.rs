@@ -5,6 +5,6 @@ pub mod update;
 pub mod update_message;
 pub mod util;
 
-mod backend;
+pub mod backend;
 
-pub use backend::{Backend, Resolver, RuntimeHandle, TcpBackend, UdpBackend};
+pub use backend::{Backend, Resolver, Runtime, TcpBackend, UdpBackend};

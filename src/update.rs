@@ -8,7 +8,9 @@ use std::{
 
 use failure::format_err;
 use futures::stream::{FuturesUnordered, TryStreamExt};
-use tokio::time::{delay_for, timeout};
+use tokio::{
+    time::{sleep, timeout},
+};
 use trust_dns_client::{
     op::{Message, Query},
     proto::xfer::{DnsHandle, DnsRequestOptions},
@@ -19,7 +21,7 @@ use crate::{
     record::{RecordSet, RsData},
     tsig, update_message,
     util::{self, SocketName},
-    Backend, Resolver, RuntimeHandle,
+    Backend, Resolver, Runtime,
 };
 
 #[derive(Debug, Clone)]
@@ -156,7 +158,7 @@ impl fmt::Display for Expectation {
 }
 
 pub async fn perform_update<D>(
-    runtime: RuntimeHandle,
+    runtime: &Runtime,
     mut dns: D,
     resolver: D::Resolver,
     options: Update,
@@ -180,14 +182,14 @@ where
     } else {
         return Err(format_err!("SOA record for {} not found", options.zone));
     };
-    let mut server = dns.open(runtime.clone(), master);
+    let mut server = dns.open(runtime.clone(), master)?;
     // TODO: probably should check response
     server.send(message).await?;
     Ok(())
 }
 
 pub async fn monitor_update<D>(
-    runtime: RuntimeHandle,
+    runtime: &Runtime,
     dns: D,
     resolver: D::Resolver,
     options: Monitor,
@@ -212,7 +214,7 @@ where
 }
 
 async fn poll_for_update<D, I>(
-    runtime: RuntimeHandle,
+    runtime: &Runtime,
     dns: D,
     resolver: D::Resolver,
     authorative: I,
@@ -226,7 +228,7 @@ where
         .into_iter()
         .map(move |server_name| {
             poll_server(
-                runtime.clone(),
+                runtime,
                 dns.clone(),
                 resolver.clone(),
                 server_name,
@@ -239,7 +241,7 @@ where
 }
 
 async fn poll_server<D>(
-    runtime: RuntimeHandle,
+    runtime: &Runtime,
     mut dns: D,
     resolver: D::Resolver,
     server_name: rr::Name,
@@ -257,7 +259,7 @@ where
     if options.exclude.contains(&ip) {
         return Ok(());
     }
-    let mut server = dns.open(runtime.clone(), SocketAddr::new(ip, 53));
+    let mut server = dns.open(runtime, SocketAddr::new(ip, 53))?;
     let server_name = server_name.clone();
     let options = Rc::clone(&options);
     let query = options.get_query();
@@ -285,7 +287,7 @@ where
             if hit {
                 return Ok(());
             } else {
-                delay_for(options.interval).await;
+                sleep(options.interval).await;
             }
         }
     }
