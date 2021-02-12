@@ -5,7 +5,7 @@ use std::{
     str::FromStr,
 };
 
-use trust_dns_client::{proto::error::ProtoError, rr};
+use trust_dns_client::{proto::error::ProtoError, rr, op::ResponseCode};
 use trust_dns_resolver::error::{ResolveError, ResolveErrorKind};
 
 use crate::Resolver;
@@ -43,7 +43,10 @@ impl SocketName {
                 } else {
                     Err(ResolveErrorKind::NoRecordsFound {
                         query: lookup.query().clone(),
-                        valid_until: Some(lookup.valid_until()),
+                        soa: None,
+                        negative_ttl: None,
+                        response_code: ResponseCode::NXDomain,
+                        trusted: false,
                     }
                     .into())
                 }

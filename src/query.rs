@@ -60,14 +60,14 @@ pub struct Query {
 }
 
 pub fn perform_query(
-    resolver: impl Resolver,
+    resolver: impl Resolver + 'static,
     options: Query,
 ) -> impl Stream<Item = Result<Vec<rr::Record>, ResolveError>> {
     let entry = options.entry;
     options
         .record_types
         .into_iter()
-        .map(|rtype| {
+        .map(move |rtype| {
             resolver.lookup(entry.clone(), rtype).map(|result| {
                 result.map(|lookup| lookup.record_iter().cloned().collect::<Vec<_>>())
             })

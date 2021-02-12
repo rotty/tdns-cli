@@ -19,7 +19,7 @@ use tdns_cli::{
     record::{RecordSet, RsData},
     tsig,
     update::{monitor_update, perform_update, Expectation, Monitor, Operation, Update},
-    util, Backend, RuntimeHandle, TcpBackend, UdpBackend,
+    util, Backend, TcpBackend, UdpBackend,
 };
 
 /// DNS client utilities
@@ -299,25 +299,24 @@ fn read_key(path: &Path, key_name: Option<&rr::Name>) -> Result<tsig::Key, failu
 }
 
 fn open_resolver<D: Backend + 'static>(
-    runtime: RuntimeHandle,
     mut dns: D,
     addr: Option<SocketAddr>,
 ) -> Result<D::Resolver, ResolveError> {
     if let Some(addr) = addr {
-        Ok(dns.open_resolver(runtime, addr))
+        Ok(dns.open_resolver(addr)?)
     } else {
-        Ok(dns.open_system_resolver(runtime)?)
+        Ok(dns.open_system_resolver()?)
     }
 }
 
 async fn run_update<D: Backend + 'static>(
-    runtime: RuntimeHandle,
+    runtime: &Runtime,
     dns: D,
     opt: UpdateOpt,
 ) -> Result<(), failure::Error> {
-    let resolver = open_resolver(runtime.clone(), dns.clone(), opt.common.resolver)?;
+    let resolver = open_resolver(dns.clone(), opt.common.resolver)?;
     if let Some(update) = opt.to_update()? {
-        perform_update(runtime.clone(), dns.clone(), resolver.clone(), update).await?;
+        perform_update(runtime, dns.clone(), resolver.clone(), update).await?;
     }
     if let Some(monitor) = opt.to_monitor()? {
         monitor_update(runtime, dns, resolver, monitor).await?;
@@ -325,12 +324,8 @@ async fn run_update<D: Backend + 'static>(
     Ok(())
 }
 
-async fn run_query<D: Backend + 'static>(
-    runtime: RuntimeHandle,
-    dns: D,
-    opt: QueryOpt,
-) -> Result<(), failure::Error> {
-    let resolver = open_resolver(runtime.clone(), dns.clone(), opt.common.resolver)?;
+async fn run_query<D: Backend + 'static>(dns: D, opt: QueryOpt) -> Result<(), failure::Error> {
+    let resolver = open_resolver(dns.clone(), opt.common.resolver)?;
     let query = opt.to_query()?;
     let (n_failed, total) = perform_query(resolver, query.clone())
         .fold((0_usize, 0_usize), |(n_failed, total), item| {
@@ -360,13 +355,13 @@ async fn run_query<D: Backend + 'static>(
     Ok(())
 }
 
-async fn run(runtime: RuntimeHandle, tdns: Tdns) -> Result<(), failure::Error> {
+async fn run(runtime: &Runtime, tdns: Tdns) -> Result<(), failure::Error> {
     match tdns {
         Tdns::Query(opt) => {
             if opt.common.tcp {
-                run_query(runtime, TcpBackend, opt).await?
+                run_query(TcpBackend, opt).await?
             } else {
-                run_query(runtime, UdpBackend, opt).await?
+                run_query(UdpBackend, opt).await?
             }
         }
         Tdns::Update(opt) => {
@@ -381,9 +376,9 @@ async fn run(runtime: RuntimeHandle, tdns: Tdns) -> Result<(), failure::Error> {
 }
 
 fn main() {
-    let mut runtime = Runtime::new().unwrap();
+    let runtime = Runtime::new().unwrap();
     let tdns = Tdns::from_args();
-    let rc = match runtime.block_on(run(runtime.handle().clone(), tdns)) {
+    let rc = match runtime.block_on(run(&runtime, tdns)) {
         Ok(_) => 0,
         Err(e) => {
             eprintln!("Error: {}", e);

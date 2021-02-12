@@ -15,15 +15,12 @@ edition = "2018"
 maintenance = { status = "actively-developed" }
 
 [dependencies]
-trust-dns-client = "0.18.0-alpha.2"
-trust-dns-resolver = "0.18.0-alpha.2"
-# This dependency is a workaround, as the dependencies in the other
-# `trust-dns` crates seem to be too lose.
-trust-dns-proto = "0.18.0-alpha.2"
+trust-dns-client = "0.20.0"
+trust-dns-resolver = "0.20.0"
 structopt = "0.3.1"
 futures = "0.3.1"
 failure = "0.1.5"
-tokio = "0.2.2"
+tokio = { version = "1.2.0", features = ["full"] }
 rand = "0.7.2"
 hmac = "0.7.1"
 sha2 = "0.8.0"
