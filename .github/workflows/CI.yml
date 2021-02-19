@@ -40,25 +40,6 @@ jobs:
         with:
           command: test
 
-  msrv-check:
-    name: "Test Suite -- MSRV (1.39.0)"
-    runs-on: ubuntu-latest
-    steps:
-      - name: Checkout sources
-        uses: actions/checkout@v2
-
-      - name: Install 1.39 toolchain
-        uses: actions-rs/toolchain@v1
-        with:
-          profile: minimal
-          toolchain: 1.39.0 # async/await
-          override: true
-
-      - name: Run cargo test
-        uses: actions-rs/cargo@v1
-        with:
-          command: test
-
   lints:
     name: Lints
     runs-on: ubuntu-latest
