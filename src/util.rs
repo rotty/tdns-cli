@@ -5,7 +5,7 @@ use std::{
     str::FromStr,
 };
 
-use trust_dns_client::{proto::error::ProtoError, rr, op::ResponseCode};
+use trust_dns_client::{op::ResponseCode, proto::error::ProtoError, rr};
 use trust_dns_resolver::error::{ResolveError, ResolveErrorKind};
 
 use crate::Resolver;

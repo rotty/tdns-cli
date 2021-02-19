@@ -222,7 +222,11 @@ fn emit_u48(encoder: &mut BinEncoder, n: u64) -> ProtoResult<()> {
     Ok(())
 }
 
-fn create_tsig<T: Mac + NewMac>(msg: &op::Message, time_signed: u64, key: &Key) -> Result<TSIG, Error> {
+fn create_tsig<T: Mac + NewMac>(
+    msg: &op::Message,
+    time_signed: u64,
+    key: &Key,
+) -> Result<TSIG, Error> {
     let mut encoded = Vec::new(); // TODO: initial capacity?
     let mut encoder = BinEncoder::new(&mut encoded);
     let fudge = 300; // FIXME: fudge hardcoded
