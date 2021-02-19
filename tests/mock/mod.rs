@@ -5,7 +5,7 @@ use std::{
     sync::{Arc, Mutex},
 };
 
-use failure::format_err;
+use anyhow::anyhow;
 use futures::{future, FutureExt};
 use trust_dns_client::{
     op::update_message::UpdateMessage,
@@ -52,7 +52,7 @@ impl Zone {
     }
 }
 
-pub fn parse_rdata(rtype: &str, rdata: &str) -> Result<rr::RData, failure::Error> {
+pub fn parse_rdata(rtype: &str, rdata: &str) -> anyhow::Result<rr::RData> {
     use rr::{rdata::SOA, RData};
     match rtype {
         "A" => Ok(RData::A(rdata.parse()?)),
@@ -71,14 +71,14 @@ pub fn parse_rdata(rtype: &str, rdata: &str) -> Result<rr::RData, failure::Error
                 parts[6].parse()?,
             )))
         }
-        _ => Err(format_err!("unsupported record type: {}", rtype)),
+        _ => Err(anyhow!("unsupported record type: {}", rtype)),
     }
 }
 
 pub type ZoneEntries<'a> = &'a [(&'a str, &'a str, &'a str)];
 
 impl<'a> TryFrom<ZoneEntries<'a>> for Zone {
-    type Error = failure::Error;
+    type Error = anyhow::Error;
 
     fn try_from(entries: ZoneEntries) -> Result<Self, Self::Error> {
         Ok(Zone(
@@ -91,7 +91,7 @@ impl<'a> TryFrom<ZoneEntries<'a>> for Zone {
                         parse_rdata(rtype, rdata)?,
                     ))
                 })
-                .collect::<Result<_, failure::Error>>()?,
+                .collect::<anyhow::Result<_>>()?,
         ))
     }
 }

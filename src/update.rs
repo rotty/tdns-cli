@@ -6,7 +6,7 @@ use std::{
     time::Duration,
 };
 
-use failure::format_err;
+use anyhow::anyhow;
 use futures::stream::{FuturesUnordered, TryStreamExt};
 use tokio::{
     time::{sleep, timeout},
@@ -162,7 +162,7 @@ pub async fn perform_update<D>(
     mut dns: D,
     resolver: D::Resolver,
     options: Update,
-) -> Result<(), failure::Error>
+) -> anyhow::Result<()>
 where
     D: Backend,
     D::Resolver: 'static,
@@ -180,7 +180,7 @@ where
             .resolve(resolver, 53)
             .await?
     } else {
-        return Err(format_err!("SOA record for {} not found", options.zone));
+        return Err(anyhow!("SOA record for {} not found", options.zone));
     };
     let mut server = dns.open(runtime.clone(), master)?;
     // TODO: probably should check response
@@ -193,7 +193,7 @@ pub async fn monitor_update<D>(
     dns: D,
     resolver: D::Resolver,
     options: Monitor,
-) -> Result<(), failure::Error>
+) -> anyhow::Result<()>
 where
     D: Backend,
 {
@@ -206,7 +206,7 @@ where
     .await?
     {
         Ok(_) => Ok(()),
-        Err(_) => Err(format_err!(
+        Err(_) => Err(anyhow!(
             "timeout; update not complete within {}ms",
             options.timeout.as_millis()
         )),
@@ -219,7 +219,7 @@ async fn poll_for_update<D, I>(
     resolver: D::Resolver,
     authorative: I,
     options: Rc<Monitor>,
-) -> Result<(), failure::Error>
+) -> anyhow::Result<()>
 where
     I: IntoIterator<Item = rr::Name>,
     D: Backend,
@@ -246,7 +246,7 @@ async fn poll_server<D>(
     resolver: D::Resolver,
     server_name: rr::Name,
     options: Rc<Monitor>,
-) -> Result<(), failure::Error>
+) -> anyhow::Result<()>
 where
     D: Backend,
 {
@@ -255,7 +255,7 @@ where
         .await?
         .iter()
         .next()
-        .ok_or_else(|| format_err!("could not resolve {}", &server_name))?;
+        .ok_or_else(|| anyhow!("could not resolve {}", &server_name))?;
     if options.exclude.contains(&ip) {
         return Ok(());
     }
