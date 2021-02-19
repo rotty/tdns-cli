@@ -14,9 +14,9 @@ pub fn parse_comma_separated<T>(s: &str) -> Result<Vec<T>, T::Err>
 where
     T: FromStr,
 {
-    Ok(s.split(',')
+    s.split(',')
         .map(|part| part.parse())
-        .collect::<Result<_, _>>()?)
+        .collect::<Result<_, _>>()
 }
 
 /// A potential unresolved host name, with an optional port number.

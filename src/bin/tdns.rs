@@ -82,17 +82,17 @@ impl QueryOpt {
         })
     }
 
-    fn to_query(&self) -> anyhow::Result<Query> {
+    fn to_query(&self) -> Query {
         let record_types = self
             .record_types
             .as_ref()
             .map(|cs| cs.to_vec())
             .unwrap_or_else(|| vec![rr::RecordType::A]);
-        Ok(Query {
+        Query {
             entry: self.entry.clone(),
             display_format: Self::get_display_format(self.display_format, &record_types),
             record_types,
-        })
+        }
     }
 }
 
@@ -326,7 +326,7 @@ async fn run_update<D: Backend + 'static>(
 
 async fn run_query<D: Backend + 'static>(dns: D, opt: QueryOpt) -> anyhow::Result<()> {
     let resolver = open_resolver(dns.clone(), opt.common.resolver)?;
-    let query = opt.to_query()?;
+    let query = opt.to_query();
     let (n_failed, total) = perform_query(resolver, query.clone())
         .fold((0_usize, 0_usize), |(n_failed, total), item| {
             let mut stdout = std::io::stdout();
