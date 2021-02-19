@@ -8,9 +8,7 @@ use std::{
 
 use anyhow::anyhow;
 use futures::stream::{FuturesUnordered, TryStreamExt};
-use tokio::{
-    time::{sleep, timeout},
-};
+use tokio::time::{sleep, timeout};
 use trust_dns_client::{
     op::{Message, Query},
     proto::xfer::{DnsHandle, DnsRequestOptions},

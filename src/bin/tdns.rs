@@ -6,8 +6,8 @@ use std::{
     time::Duration,
 };
 
-use data_encoding::BASE64;
 use anyhow::anyhow;
+use data_encoding::BASE64;
 use futures::{future, StreamExt};
 use structopt::StructOpt;
 use tokio::runtime::Runtime;
@@ -288,11 +288,7 @@ fn read_key(path: &Path, key_name: Option<&rr::Name>) -> anyhow::Result<tsig::Ke
         }
     }
     if let Some(key_name) = key_name {
-        Err(anyhow!(
-            "key {} not found in {}",
-            key_name,
-            path.display()
-        ))
+        Err(anyhow!("key {} not found in {}", key_name, path.display()))
     } else {
         Err(anyhow!("no key found in {}", path.display()))
     }

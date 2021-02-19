@@ -138,10 +138,7 @@ impl Backend for MockBackend {
     fn open(&mut self, _runtime: &Runtime, addr: SocketAddr) -> Result<Self::Client, ProtoError> {
         Ok(self.open_client(addr))
     }
-    fn open_resolver(
-        &mut self,
-        addr: SocketAddr,
-    ) -> Result<Self::Resolver, ResolveError> {
+    fn open_resolver(&mut self, addr: SocketAddr) -> Result<Self::Resolver, ResolveError> {
         Ok(self.open_client(addr))
     }
     fn open_system_resolver(&mut self) -> Result<Self::Resolver, ResolveError> {
