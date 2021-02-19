@@ -161,7 +161,7 @@ fn test_create_delayed() {
             "A:192.168.1.2".parse().unwrap(),
         )),
     );
-    async fn update_auth(zone: mock::Handle<mock::Zone>) -> Result<(), failure::Error> {
+    async fn update_auth(zone: mock::Handle<mock::Zone>) -> anyhow::Result<()> {
         sleep(TIMEOUT / 2).await;
         let updated = rr::Record::from_rdata(
             "foo.example.org".parse().unwrap(),
@@ -173,7 +173,7 @@ fn test_create_delayed() {
         Ok(())
     }
     let parallel = FuturesUnordered::new();
-    parallel.push(Box::pin(update) as Pin<Box<dyn Future<Output = Result<(), failure::Error>>>>);
+    parallel.push(Box::pin(update) as Pin<Box<dyn Future<Output = anyhow::Result<()>>>>);
     parallel.push(Box::pin(update_auth(zone)));
     runtime.block_on(parallel.try_collect::<Vec<_>>()).unwrap();
 }

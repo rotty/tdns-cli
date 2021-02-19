@@ -19,7 +19,7 @@ trust-dns-client = "0.20.0"
 trust-dns-resolver = "0.20.0"
 structopt = "0.3.1"
 futures = "0.3.1"
-failure = "0.1.5"
+anyhow = "1.0"
 tokio = { version = "1.2.0", features = ["full"] }
 rand = "0.7.2"
 hmac = "0.7.1"
