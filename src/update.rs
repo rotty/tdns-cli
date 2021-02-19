@@ -182,7 +182,7 @@ where
     } else {
         return Err(anyhow!("SOA record for {} not found", options.zone));
     };
-    let mut server = dns.open(runtime.clone(), master)?;
+    let mut server = dns.open(runtime, master)?;
     // TODO: probably should check response
     server.send(message).await?;
     Ok(())

@@ -288,7 +288,7 @@ impl TryFrom<&[rr::Record]> for RecordSet {
         match keys.len() {
             0 => Err(TryFromRecordsError::Empty),
             1 => {
-                let key = keys.iter().nth(0).unwrap();
+                let key = keys.iter().next().unwrap();
                 // TODO: I'm not sure if `trust-dns` actually guarantees that
                 // these `unwrap` calls never panic, but I'd guess so. I should
                 // study its code and submit a documentation patch to clarify
