@@ -118,9 +118,9 @@ struct UpdateOpt {
     key: Option<String>,
     #[structopt(long)]
     key_file: Option<PathBuf>,
-    /// Excluded IP address.
+    /// Excluded IP addresses.
     #[structopt(long)]
-    exclude: Option<IpAddr>,
+    exclude: Vec<IpAddr>,
     /// The TTL for added records.
     #[structopt(long)]
     ttl: Option<u32>,
@@ -248,7 +248,7 @@ impl UpdateOpt {
                 }
                 Some(Operation::DeleteAll(_)) => Expectation::Empty(rr::RecordType::ANY),
             },
-            exclude: self.exclude.into_iter().collect(),
+            exclude: self.exclude.clone(),
             interval: Duration::from_secs(self.interval.unwrap_or(1)),
             timeout: Duration::from_secs(self.timeout.unwrap_or(60)),
             verbose: self.verbose,
