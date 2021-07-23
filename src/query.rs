@@ -241,7 +241,9 @@ impl<'a> fmt::Display for DisplayRData<'a> {
                 }
             }
             // TODO: What to do with records that have no specified presentation?
-            NULL(_) | OPT(_) | Unknown { .. } | ZERO => write!(f, "{:?}", self.0)?,
+            NULL(_) | OPT(_) | Unknown { .. } | ZERO | HINFO(_) | HTTPS(_) | SVCB(_) => {
+                write!(f, "{:?}", self.0)?
+            }
         }
         Ok(())
     }
