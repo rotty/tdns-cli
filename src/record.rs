@@ -124,6 +124,7 @@ impl<'a> Iterator for RsDataIter<'a> {
     }
 }
 
+#[allow(clippy::upper_case_acronyms)]
 #[derive(Debug)]
 enum RsDataIterInner<'a> {
     TXT(btree_set::Iter<'a, String>),

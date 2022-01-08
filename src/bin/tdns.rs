@@ -23,6 +23,7 @@ use tdns_cli::{
 };
 
 /// DNS client utilities
+#[allow(clippy::large_enum_variant)]
 #[derive(StructOpt)]
 enum Tdns {
     /// Update a DNS entry

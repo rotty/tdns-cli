@@ -136,7 +136,7 @@ impl Key {
 
 pub fn add_signature(msg: &mut op::Message, key: &Key) -> Result<(), Error> {
     let unix_time = SystemTime::now().duration_since(SystemTime::UNIX_EPOCH)?;
-    let record = create_signature(&msg, unix_time.as_secs(), key)?;
+    let record = create_signature(msg, unix_time.as_secs(), key)?;
     msg.add_additional(record);
     Ok(())
 }
@@ -144,16 +144,17 @@ pub fn add_signature(msg: &mut op::Message, key: &Key) -> Result<(), Error> {
 fn create_signature(msg: &op::Message, time_signed: u64, key: &Key) -> Result<rr::Record, Error> {
     use Algorithm::*;
     let tsig = match key.algorithm {
-        HmacSha224 => create_tsig::<Hmac<sha2::Sha224>>(&msg, time_signed, &key)?,
-        HmacSha256 => create_tsig::<Hmac<sha2::Sha256>>(&msg, time_signed, &key)?,
-        HmacSha384 => create_tsig::<Hmac<sha2::Sha384>>(&msg, time_signed, &key)?,
-        HmacSha512 => create_tsig::<Hmac<sha2::Sha512>>(&msg, time_signed, &key)?,
+        HmacSha224 => create_tsig::<Hmac<sha2::Sha224>>(msg, time_signed, key)?,
+        HmacSha256 => create_tsig::<Hmac<sha2::Sha256>>(msg, time_signed, key)?,
+        HmacSha384 => create_tsig::<Hmac<sha2::Sha384>>(msg, time_signed, key)?,
+        HmacSha512 => create_tsig::<Hmac<sha2::Sha512>>(msg, time_signed, key)?,
     };
     let mut record = rr::Record::from_rdata(key.name.clone(), 0, tsig.try_into()?);
     record.set_dns_class(rr::DNSClass::ANY);
     Ok(record)
 }
 
+#[allow(clippy::upper_case_acronyms)]
 #[derive(Debug)]
 struct TSIG {
     algorithm_name: rr::Name,
@@ -175,6 +176,7 @@ impl TSIG {
         error: op::ResponseCode,
         other_data: Vec<u8>,
     ) -> Self {
+        assert!(other_data.len() <= usize::from(u16::MAX));
         TSIG {
             algorithm_name,
             time_signed,
@@ -211,7 +213,8 @@ impl BinEncodable for TSIG {
         encoder.emit_vec(&self.mac)?;
         encoder.emit_u16(self.original_id)?;
         encoder.emit_u16(self.error.into())?;
-        encoder.emit_u16(0)?; // Other data is of length 0
+        encoder.emit_u16(self.other_data.len().try_into().expect("other data too long"))?;
+        encoder.emit_vec(&self.other_data)?;
         Ok(())
     }
 }
