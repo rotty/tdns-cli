@@ -5,8 +5,8 @@ use std::{
     time::{SystemTime, SystemTimeError},
 };
 
-use hmac::crypto_mac::InvalidKeyLength;
-use hmac::{Hmac, Mac, NewMac};
+use digest::KeyInit;
+use hmac::{Hmac, Mac};
 use once_cell::sync::Lazy;
 use trust_dns_client::{
     op,
@@ -18,7 +18,7 @@ use trust_dns_client::{
 #[derive(Debug)]
 pub enum Error {
     Proto(ProtoError),
-    InvalidKeyLength(InvalidKeyLength),
+    InvalidKeyLength(digest::InvalidLength),
     SystemTime(SystemTimeError),
 }
 
@@ -40,8 +40,8 @@ impl From<ProtoError> for Error {
     }
 }
 
-impl From<InvalidKeyLength> for Error {
-    fn from(e: InvalidKeyLength) -> Self {
+impl From<digest::InvalidLength> for Error {
+    fn from(e: digest::InvalidLength) -> Self {
         Error::InvalidKeyLength(e)
     }
 }
@@ -222,7 +222,7 @@ fn emit_u48(encoder: &mut BinEncoder, n: u64) -> ProtoResult<()> {
     Ok(())
 }
 
-fn create_tsig<T: Mac + NewMac>(
+fn create_tsig<T: Mac + KeyInit>(
     msg: &op::Message,
     time_signed: u64,
     key: &Key,
@@ -257,7 +257,7 @@ fn create_tsig<T: Mac + NewMac>(
     encoder.emit_u16(rcode.into())?;
     encoder.emit_u16(0)?; // Other data is of length 0
     let hmac = {
-        let mut mac = T::new_varkey(&key.secret)?;
+        let mut mac = <T as digest::Mac>::new_from_slice(&key.secret)?;
         mac.update(&encoded);
         mac.finalize().into_bytes().to_vec()
     };
