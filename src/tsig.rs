@@ -213,7 +213,12 @@ impl BinEncodable for TSIG {
         encoder.emit_vec(&self.mac)?;
         encoder.emit_u16(self.original_id)?;
         encoder.emit_u16(self.error.into())?;
-        encoder.emit_u16(self.other_data.len().try_into().expect("other data too long"))?;
+        encoder.emit_u16(
+            self.other_data
+                .len()
+                .try_into()
+                .expect("other data too long"),
+        )?;
         encoder.emit_vec(&self.other_data)?;
         Ok(())
     }
