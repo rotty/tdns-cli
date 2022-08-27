@@ -6,10 +6,7 @@ use std::{
 
 use chrono::NaiveDateTime;
 use data_encoding::{Encoding, BASE32, BASE64, HEXLOWER};
-use futures::{
-    stream::{FuturesUnordered, Stream},
-    FutureExt,
-};
+use futures::stream::{FuturesUnordered, Stream};
 
 use trust_dns_client::rr::{
     self,
@@ -68,9 +65,12 @@ pub fn perform_query(
         .record_types
         .into_iter()
         .map(move |rtype| {
-            resolver.lookup(entry.clone(), rtype).map(|result| {
-                result.map(|lookup| lookup.record_iter().cloned().collect::<Vec<_>>())
-            })
+            let resolver = resolver.clone();
+            let entry = entry.clone();
+            async move {
+                let lookup = resolver.lookup(entry.clone(), rtype).await?;
+                Ok(lookup.record_iter().cloned().collect::<Vec<_>>())
+            }
         })
         .collect::<FuturesUnordered<_>>()
 }

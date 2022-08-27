@@ -102,8 +102,8 @@ fn mock_dns_independent(master_data: ZoneEntries) -> (MockBackend, mock::Handle<
 fn test_monitor_match() {
     let runtime = Runtime::new().unwrap();
     let (mut dns, _) = mock_dns_shared(&[("foo.example.org", "A", "192.168.1.1")]);
-    let resolver = dns
-        .open(&runtime, "127.0.0.1:53".parse().unwrap())
+    let resolver = runtime
+        .block_on(dns.open(&runtime, "127.0.0.1:53".parse().unwrap()))
         .expect("failed to open resolver");
     let monitor = monitor_update(&runtime, dns, resolver, monitor_settings("A:192.168.1.1"));
     runtime.block_on(monitor).unwrap();
@@ -117,8 +117,8 @@ fn test_monitor_mismatch() {
         &[("foo.example.org", "A", "192.168.1.1")],
         &[("foo.example.org", "A", "192.168.1.2")],
     );
-    let resolver = dns
-        .open(&runtime, "127.0.0.1:53".parse().unwrap())
+    let resolver = runtime
+        .block_on(dns.open(&runtime, "127.0.0.1:53".parse().unwrap()))
         .expect("failed to open resolver");
     let monitor = monitor_update(&runtime, dns, resolver, monitor_settings("A:192.168.1.1"));
     let result = runtime.block_on(monitor);
@@ -129,8 +129,8 @@ fn test_monitor_mismatch() {
 fn test_create_immediate() {
     let runtime = Runtime::new().unwrap();
     let (mut dns, _) = mock_dns_shared(&[("foo.example.org", "A", "192.168.1.1")]);
-    let resolver = dns
-        .open(&runtime, "127.0.0.1:53".parse().unwrap())
+    let resolver = runtime
+        .block_on(dns.open(&runtime, "127.0.0.1:53".parse().unwrap()))
         .expect("failed to open resolver");
     let update = perform_update(
         &runtime,
@@ -149,8 +149,8 @@ fn test_create_immediate() {
 fn test_create_delayed() {
     let runtime = Runtime::new().unwrap();
     let (mut dns, zone) = mock_dns_independent(&[("foo.example.org", "A", "192.168.1.1")]);
-    let resolver = dns
-        .open(&runtime, "127.0.0.1:53".parse().unwrap())
+    let resolver = runtime
+        .block_on(dns.open(&runtime, "127.0.0.1:53".parse().unwrap()))
         .expect("failed to open resolver");
     let update = perform_update(
         &runtime,
@@ -182,8 +182,8 @@ fn test_create_delayed() {
 fn test_delete() {
     let runtime = Runtime::new().unwrap();
     let (mut dns, _) = mock_dns_shared(&[("foo.example.org", "A", "192.168.1.1")]);
-    let resolver = dns
-        .open(&runtime, "127.0.0.1:53".parse().unwrap())
+    let resolver = runtime
+        .block_on(dns.open(&runtime, "127.0.0.1:53".parse().unwrap()))
         .expect("failed to open resolver");
     let update = perform_update(
         &runtime,

@@ -1,8 +1,7 @@
 /// An abstraction over different ways to do DNS queries.
 use std::net::SocketAddr;
 
-//use async_trait::async_trait;
-use futures::{future::BoxFuture, FutureExt};
+use async_trait::async_trait;
 use tokio::net::{TcpStream, UdpSocket};
 use trust_dns_client::{
     client::{AsyncClient, ClientFuture, ClientHandle},
@@ -22,43 +21,50 @@ pub use tokio::runtime::Runtime;
 
 pub type RuntimeHandle = tokio::runtime::Handle;
 
-pub type LookupFuture = BoxFuture<'static, Result<lookup::Lookup, ResolveError>>;
-pub type LookupIpFuture = BoxFuture<'static, Result<lookup_ip::LookupIp, ResolveError>>;
-pub type LookupSoaFuture = BoxFuture<'static, Result<lookup::SoaLookup, ResolveError>>;
-pub type LookupNsFuture = BoxFuture<'static, Result<lookup::NsLookup, ResolveError>>;
-
+#[async_trait]
 pub trait Resolver: Clone {
-    fn lookup(&self, name: rr::Name, rtype: rr::RecordType) -> LookupFuture;
-    fn lookup_ip(&self, host: rr::Name) -> LookupIpFuture;
-    fn lookup_soa(&self, name: rr::Name) -> LookupSoaFuture;
-    fn lookup_ns(&self, name: rr::Name) -> LookupNsFuture;
+    async fn lookup(
+        &self,
+        name: rr::Name,
+        rtype: rr::RecordType,
+    ) -> Result<lookup::Lookup, ResolveError>;
+    async fn lookup_ip(&self, host: rr::Name) -> Result<lookup_ip::LookupIp, ResolveError>;
+    async fn lookup_soa(&self, name: rr::Name) -> Result<lookup::SoaLookup, ResolveError>;
+    async fn lookup_ns(&self, name: rr::Name) -> Result<lookup::NsLookup, ResolveError>;
 }
 
+#[async_trait]
 impl Resolver for TokioAsyncResolver {
-    fn lookup(&self, name: rr::Name, rtype: rr::RecordType) -> LookupFuture {
-        TokioAsyncResolver::lookup(self, name, rtype, DnsRequestOptions::default()).boxed()
+    async fn lookup(
+        &self,
+        name: rr::Name,
+        rtype: rr::RecordType,
+    ) -> Result<lookup::Lookup, ResolveError> {
+        TokioAsyncResolver::lookup(self, name, rtype, DnsRequestOptions::default()).await
     }
 
-    fn lookup_ip(&self, host: rr::Name) -> LookupIpFuture {
-        let resolver = self.clone();
-        Box::pin(async move { TokioAsyncResolver::lookup_ip(&resolver, host).await })
+    async fn lookup_ip(&self, host: rr::Name) -> Result<lookup_ip::LookupIp, ResolveError> {
+        TokioAsyncResolver::lookup_ip(self, host).await
     }
 
-    fn lookup_soa(&self, name: rr::Name) -> LookupSoaFuture {
-        let resolver = self.clone();
-        Box::pin(async move { TokioAsyncResolver::soa_lookup(&resolver, name).await })
+    async fn lookup_soa(&self, name: rr::Name) -> Result<lookup::SoaLookup, ResolveError> {
+        TokioAsyncResolver::soa_lookup(self, name).await
     }
 
-    fn lookup_ns(&self, name: rr::Name) -> LookupNsFuture {
-        let resolver = self.clone();
-        Box::pin(async move { TokioAsyncResolver::ns_lookup(&resolver, name).await })
+    async fn lookup_ns(&self, name: rr::Name) -> Result<lookup::NsLookup, ResolveError> {
+        TokioAsyncResolver::ns_lookup(self, name).await
     }
 }
 
+#[async_trait]
 pub trait Backend: Clone {
     type Client: ClientHandle;
     type Resolver: Resolver;
-    fn open(&mut self, runtime: &Runtime, addr: SocketAddr) -> Result<Self::Client, ProtoError>;
+    async fn open(
+        &mut self,
+        runtime: &Runtime,
+        addr: SocketAddr,
+    ) -> Result<Self::Client, ProtoError>;
     fn open_resolver(&mut self, addr: SocketAddr) -> Result<Self::Resolver, ResolveError>;
     fn open_system_resolver(&mut self) -> Result<Self::Resolver, ResolveError>;
 }
@@ -66,15 +72,19 @@ pub trait Backend: Clone {
 #[derive(Debug, Clone)]
 pub struct TcpBackend;
 
+#[async_trait]
 impl Backend for TcpBackend {
     type Client = AsyncClient;
     type Resolver = TokioAsyncResolver;
 
-    fn open(&mut self, runtime: &Runtime, addr: SocketAddr) -> Result<Self::Client, ProtoError> {
+    async fn open(
+        &mut self,
+        runtime: &Runtime,
+        addr: SocketAddr,
+    ) -> Result<Self::Client, ProtoError> {
         use trust_dns_resolver::proto::iocompat::AsyncIoTokioAsStd;
         let (stream, sender) = TcpClientStream::<AsyncIoTokioAsStd<TcpStream>>::new(addr);
-        let connect = AsyncClient::new(Box::new(stream), sender, None);
-        let (client, bg) = runtime.block_on(connect)?; // TODO: should not block
+        let (client, bg) = AsyncClient::new(Box::new(stream), sender, None).await?;
         runtime.spawn(bg);
         Ok(client)
     }
@@ -91,13 +101,18 @@ impl Backend for TcpBackend {
 #[derive(Debug, Clone)]
 pub struct UdpBackend;
 
+#[async_trait]
 impl Backend for UdpBackend {
     type Client = AsyncClient;
     type Resolver = TokioAsyncResolver;
 
-    fn open(&mut self, runtime: &Runtime, addr: SocketAddr) -> Result<Self::Client, ProtoError> {
+    async fn open(
+        &mut self,
+        runtime: &Runtime,
+        addr: SocketAddr,
+    ) -> Result<Self::Client, ProtoError> {
         let stream = UdpClientStream::<UdpSocket>::new(addr);
-        let (client, bg) = runtime.block_on(ClientFuture::connect(stream))?; // TODO: should not block
+        let (client, bg) = ClientFuture::connect(stream).await?;
         runtime.spawn(bg);
         Ok(client)
     }

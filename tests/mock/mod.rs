@@ -6,7 +6,8 @@ use std::{
 };
 
 use anyhow::anyhow;
-use futures::{future, FutureExt};
+use async_trait::async_trait;
+use futures::future;
 use trust_dns_client::{
     op::update_message::UpdateMessage,
     proto::{
@@ -19,10 +20,12 @@ use trust_dns_client::{
 };
 use trust_dns_resolver::{
     error::{ResolveError, ResolveErrorKind},
+    lookup,
     lookup::Lookup,
+    lookup_ip,
 };
 
-use tdns_cli::{backend, Backend, Resolver, Runtime};
+use tdns_cli::{Backend, Resolver, Runtime};
 
 pub type Handle<T> = Arc<Mutex<T>>;
 pub type FutureResult<T, E> = future::Ready<Result<T, E>>;
@@ -132,10 +135,15 @@ impl MockBackend {
     }
 }
 
+#[async_trait]
 impl Backend for MockBackend {
     type Client = Client;
     type Resolver = Client;
-    fn open(&mut self, _runtime: &Runtime, addr: SocketAddr) -> Result<Self::Client, ProtoError> {
+    async fn open(
+        &mut self,
+        _runtime: &Runtime,
+        addr: SocketAddr,
+    ) -> Result<Self::Client, ProtoError> {
         Ok(self.open_client(addr))
     }
     fn open_resolver(&mut self, addr: SocketAddr) -> Result<Self::Resolver, ResolveError> {
@@ -214,18 +222,23 @@ impl DnsHandle for Client {
     }
 }
 
+#[async_trait]
 impl Resolver for Client {
-    fn lookup(&self, name: rr::Name, rtype: rr::RecordType) -> backend::LookupFuture {
-        future::ready(self.lookup_base(name, rtype)).boxed()
+    async fn lookup(
+        &self,
+        name: rr::Name,
+        rtype: rr::RecordType,
+    ) -> Result<lookup::Lookup, ResolveError> {
+        self.lookup_base(name, rtype)
     }
-    fn lookup_ip(&self, host: rr::Name) -> backend::LookupIpFuture {
+    async fn lookup_ip(&self, host: rr::Name) -> Result<lookup_ip::LookupIp, ResolveError> {
         // TODO: IPv6
-        future::ready(self.lookup_base(host, rr::RecordType::A).map(Into::into)).boxed()
+        self.lookup_base(host, rr::RecordType::A).map(Into::into)
     }
-    fn lookup_soa(&self, name: rr::Name) -> backend::LookupSoaFuture {
-        future::ready(self.lookup_base(name, rr::RecordType::SOA).map(Into::into)).boxed()
+    async fn lookup_soa(&self, name: rr::Name) -> Result<lookup::SoaLookup, ResolveError> {
+        self.lookup_base(name, rr::RecordType::SOA).map(Into::into)
     }
-    fn lookup_ns(&self, name: rr::Name) -> backend::LookupNsFuture {
-        future::ready(self.lookup_base(name, rr::RecordType::NS).map(Into::into)).boxed()
+    async fn lookup_ns(&self, name: rr::Name) -> Result<lookup::NsLookup, ResolveError> {
+        self.lookup_base(name, rr::RecordType::NS).map(Into::into)
     }
 }

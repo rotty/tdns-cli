@@ -180,7 +180,7 @@ where
     } else {
         return Err(anyhow!("SOA record for {} not found", options.zone));
     };
-    let mut server = dns.open(runtime, master)?;
+    let mut server = dns.open(runtime, master).await?;
     // TODO: probably should check response
     server.send(message).await?;
     Ok(())
@@ -257,7 +257,7 @@ where
     if options.exclude.contains(&ip) {
         return Ok(());
     }
-    let mut server = dns.open(runtime, SocketAddr::new(ip, 53))?;
+    let mut server = dns.open(runtime, SocketAddr::new(ip, 53)).await?;
     let server_name = server_name.clone();
     let options = Rc::clone(&options);
     let query = options.get_query();
