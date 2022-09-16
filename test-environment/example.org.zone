@@ -1,0 +1,8 @@
+$ORIGIN .
+example.org   3600    IN      SOA     ns1.example.org hostmaster.example.org 3 14400 3600 1209600 3600
+example.org   3600    IN      A       192.0.2.42
+example.org   3600    IN      AAAA    2001:0db8:85a3::8a2e:0370:7334
+example.org   3600    IN      MX      10 mail.example.org.
+example.org   3600    IN      NS      ns1.example.org.
+example.org   3600    IN      NS      ns2.example.org.
+tdns-test.example.org 0       IN      TXT     "qux"
