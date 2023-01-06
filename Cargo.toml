@@ -21,7 +21,7 @@ trust-dns-resolver = "0.20.0"
 structopt = "0.3.1"
 futures = "0.3.1"
 anyhow = "1.0"
-tokio = { version = "1.2.0", features = ["full"] }
+tokio = { version = "1.23.1", features = ["full"] }
 rand = "0.8.3"
 digest = "0.10.1"
 hmac = "0.12.0"
