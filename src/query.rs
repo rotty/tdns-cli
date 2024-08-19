@@ -4,7 +4,7 @@ use std::{
     str::{self, FromStr},
 };
 
-use chrono::NaiveDateTime;
+use chrono::DateTime;
 use data_encoding::{Encoding, BASE32, BASE64, HEXLOWER};
 use futures::stream::{FuturesUnordered, Stream};
 
@@ -263,7 +263,8 @@ struct ShowTimestamp(u32);
 
 impl fmt::Display for ShowTimestamp {
     fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
-        let time = NaiveDateTime::from_timestamp(i64::from(self.0), 0);
+        let time =
+            DateTime::from_timestamp(i64::from(self.0), 0).expect("u32 seconds is always valid");
         write!(f, "{}", time.format("%Y%m%d%H%S"))
     }
 }
