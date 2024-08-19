@@ -115,8 +115,10 @@ impl<'a> Iterator for RsDataIter<'a> {
     fn next(&mut self) -> Option<Self::Item> {
         use RsDataIterInner::*;
         match &mut self.0 {
-            A(iter) => iter.next().map(|item| rr::RData::A(*item)),
-            AAAA(iter) => iter.next().map(|item| rr::RData::AAAA(*item)),
+            A(iter) => iter.next().map(|item| rr::RData::A(rr::rdata::A(*item))),
+            AAAA(iter) => iter
+                .next()
+                .map(|item| rr::RData::AAAA(rr::rdata::AAAA(*item))),
             TXT(iter) => iter
                 .next()
                 .map(|item| rr::RData::TXT(rdata::TXT::new(vec![item.into()]))),
@@ -290,22 +292,20 @@ impl TryFrom<&[rr::Record]> for RecordSet {
             0 => Err(TryFromRecordsError::Empty),
             1 => {
                 let key = keys.iter().next().unwrap();
-                // TODO: I'm not sure if `trust-dns` actually guarantees that
-                // these `unwrap` calls never panic, but I'd guess so. I should
-                // study its code and submit a documentation patch to clarify
-                // behavior in either case.
                 let data = match key.record_type {
-                    rr::RecordType::A => {
-                        RsData::A(rrs.iter().map(|rr| *rr.rdata().as_a().unwrap()).collect())
-                    }
+                    rr::RecordType::A => RsData::A(
+                        rrs.iter()
+                            .filter_map(|rr| Some(rr.data()?.as_a()?.0))
+                            .collect(),
+                    ),
                     rr::RecordType::AAAA => RsData::AAAA(
                         rrs.iter()
-                            .map(|rr| *rr.rdata().as_aaaa().unwrap())
+                            .filter_map(|rr| Some(rr.data()?.as_aaaa()?.0))
                             .collect(),
                     ),
                     rr::RecordType::TXT => RsData::TXT(
                         rrs.iter()
-                            .map(|rr| txt_string(rr.rdata().as_txt().unwrap()))
+                            .filter_map(|rr| Some(txt_string(rr.data()?.as_txt()?)))
                             .collect::<Result<_, _>>()?,
                     ),
                     rtype => return Err(TryFromRecordsError::UnsupportedType(rtype)),

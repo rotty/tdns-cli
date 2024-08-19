@@ -8,9 +8,9 @@ use chrono::DateTime;
 use data_encoding::{Encoding, BASE32, BASE64, HEXLOWER};
 use futures::stream::{FuturesUnordered, Stream};
 
+use trust_dns_client::proto::rr::dnssec::Nsec3HashAlgorithm;
 use trust_dns_client::rr::{
     self,
-    dnssec::Nsec3HashAlgorithm,
     rdata::{self, caa, DNSSECRData},
 };
 use trust_dns_resolver::error::ResolveError;
@@ -241,9 +241,7 @@ impl<'a> fmt::Display for DisplayRData<'a> {
                 }
             }
             // TODO: What to do with records that have no specified presentation?
-            NULL(_) | OPT(_) | Unknown { .. } | ZERO | HINFO(_) | HTTPS(_) | SVCB(_) => {
-                write!(f, "{:?}", self.0)?
-            }
+            _ => write!(f, "{:?}", self.0)?,
         }
         Ok(())
     }
@@ -368,11 +366,9 @@ impl<'a> fmt::Display for DisplayDNSSECRData<'a> {
                 )?;
             }
             Unknown { rdata, .. } => {
-                // This is dubiuos, and I'm not sure how we can even end up here.
-                if let Some(data) = rdata.anything() {
-                    write!(f, "{}", DisplayEncoded(&BASE64, data))?;
-                }
+                write!(f, "{}", DisplayEncoded(&BASE64, rdata.anything()))?;
             }
+            _ => todo!(),
         }
         Ok(())
     }
@@ -443,18 +439,22 @@ pub fn write_record<W: io::Write>(
 ) -> io::Result<()> {
     match format {
         DisplayFormat::Short => {
-            write!(writer, "{}", DisplayRData(record.rdata()))?;
+            if let Some(rdata) = record.data() {
+                write!(writer, "{}", DisplayRData(rdata))?;
+            }
         }
         DisplayFormat::Zone => {
             write!(
                 writer,
-                "{} {} {} {} {}",
+                "{} {} {} {}",
                 record.name(),
                 record.ttl(),
                 record.dns_class(),
                 record.record_type(),
-                DisplayRData(record.rdata()),
             )?;
+            if let Some(rdata) = record.data() {
+                write!(writer, " {}", DisplayRData(rdata))?;
+            }
         }
     }
     Ok(())

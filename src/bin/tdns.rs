@@ -300,7 +300,7 @@ fn open_resolver<D: Backend + 'static>(
     addr: Option<SocketAddr>,
 ) -> Result<D::Resolver, ResolveError> {
     if let Some(addr) = addr {
-        Ok(dns.open_resolver(addr)?)
+        Ok(dns.open_resolver(addr))
     } else {
         Ok(dns.open_system_resolver()?)
     }

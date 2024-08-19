@@ -11,9 +11,9 @@ use trust_dns_client::{
 };
 use trust_dns_resolver::{
     config::{NameServerConfig, Protocol, ResolverConfig, ResolverOpts},
-    error::ResolveError,
+    error::{ResolveError, ResolveResult},
     lookup, lookup_ip,
-    proto::{error::ProtoError, xfer::dns_request::DnsRequestOptions},
+    proto::error::ProtoError,
     TokioAsyncResolver,
 };
 
@@ -28,30 +28,26 @@ pub trait Resolver: Clone {
         name: rr::Name,
         rtype: rr::RecordType,
     ) -> Result<lookup::Lookup, ResolveError>;
-    async fn lookup_ip(&self, host: rr::Name) -> Result<lookup_ip::LookupIp, ResolveError>;
-    async fn lookup_soa(&self, name: rr::Name) -> Result<lookup::SoaLookup, ResolveError>;
-    async fn lookup_ns(&self, name: rr::Name) -> Result<lookup::NsLookup, ResolveError>;
+    async fn lookup_ip(&self, host: rr::Name) -> ResolveResult<lookup_ip::LookupIp>;
+    async fn lookup_soa(&self, name: rr::Name) -> ResolveResult<lookup::SoaLookup>;
+    async fn lookup_ns(&self, name: rr::Name) -> ResolveResult<lookup::NsLookup>;
 }
 
 #[async_trait]
 impl Resolver for TokioAsyncResolver {
-    async fn lookup(
-        &self,
-        name: rr::Name,
-        rtype: rr::RecordType,
-    ) -> Result<lookup::Lookup, ResolveError> {
-        TokioAsyncResolver::lookup(self, name, rtype, DnsRequestOptions::default()).await
+    async fn lookup(&self, name: rr::Name, rtype: rr::RecordType) -> ResolveResult<lookup::Lookup> {
+        TokioAsyncResolver::lookup(self, name, rtype).await
     }
 
-    async fn lookup_ip(&self, host: rr::Name) -> Result<lookup_ip::LookupIp, ResolveError> {
+    async fn lookup_ip(&self, host: rr::Name) -> ResolveResult<lookup_ip::LookupIp> {
         TokioAsyncResolver::lookup_ip(self, host).await
     }
 
-    async fn lookup_soa(&self, name: rr::Name) -> Result<lookup::SoaLookup, ResolveError> {
+    async fn lookup_soa(&self, name: rr::Name) -> ResolveResult<lookup::SoaLookup> {
         TokioAsyncResolver::soa_lookup(self, name).await
     }
 
-    async fn lookup_ns(&self, name: rr::Name) -> Result<lookup::NsLookup, ResolveError> {
+    async fn lookup_ns(&self, name: rr::Name) -> ResolveResult<lookup::NsLookup> {
         TokioAsyncResolver::ns_lookup(self, name).await
     }
 }
@@ -65,8 +61,8 @@ pub trait Backend: Clone {
         runtime: &Runtime,
         addr: SocketAddr,
     ) -> Result<Self::Client, ProtoError>;
-    fn open_resolver(&mut self, addr: SocketAddr) -> Result<Self::Resolver, ResolveError>;
-    fn open_system_resolver(&mut self) -> Result<Self::Resolver, ResolveError>;
+    fn open_resolver(&mut self, addr: SocketAddr) -> Self::Resolver;
+    fn open_system_resolver(&mut self) -> ResolveResult<Self::Resolver>;
 }
 
 #[derive(Debug, Clone)]
@@ -89,11 +85,11 @@ impl Backend for TcpBackend {
         Ok(client)
     }
 
-    fn open_resolver(&mut self, addr: SocketAddr) -> Result<Self::Resolver, ResolveError> {
+    fn open_resolver(&mut self, addr: SocketAddr) -> Self::Resolver {
         make_resolver(addr, Protocol::Tcp)
     }
 
-    fn open_system_resolver(&mut self) -> Result<Self::Resolver, ResolveError> {
+    fn open_system_resolver(&mut self) -> ResolveResult<Self::Resolver> {
         TokioAsyncResolver::tokio_from_system_conf()
     }
 }
@@ -117,22 +113,23 @@ impl Backend for UdpBackend {
         Ok(client)
     }
 
-    fn open_resolver(&mut self, addr: SocketAddr) -> Result<Self::Resolver, ResolveError> {
+    fn open_resolver(&mut self, addr: SocketAddr) -> Self::Resolver {
         make_resolver(addr, Protocol::Udp)
     }
 
-    fn open_system_resolver(&mut self) -> Result<Self::Resolver, ResolveError> {
+    fn open_system_resolver(&mut self) -> ResolveResult<Self::Resolver> {
         TokioAsyncResolver::tokio_from_system_conf()
     }
 }
 
-fn make_resolver(addr: SocketAddr, protocol: Protocol) -> Result<TokioAsyncResolver, ResolveError> {
+fn make_resolver(addr: SocketAddr, protocol: Protocol) -> TokioAsyncResolver {
     let mut config = ResolverConfig::new();
     config.add_name_server(NameServerConfig {
         socket_addr: addr,
         protocol,
         tls_dns_name: None,
-        trust_nx_responses: true,
+        trust_negative_responses: true,
+        bind_addr: None,
     });
     TokioAsyncResolver::tokio(config, ResolverOpts::default())
 }

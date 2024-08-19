@@ -42,7 +42,7 @@ impl SocketName {
                     Ok(SocketAddr::new(ip, port))
                 } else {
                     Err(ResolveErrorKind::NoRecordsFound {
-                        query: lookup.query().clone(),
+                        query: Box::new(lookup.query().clone()),
                         soa: None,
                         negative_ttl: None,
                         response_code: ResponseCode::NXDomain,
