@@ -181,8 +181,8 @@ where
         return Err(anyhow!("SOA record for {} not found", options.zone));
     };
     let mut server = dns.open(runtime, master).await?;
-    // TODO: probably should check response
-    server.send(message).await?;
+    // TODO: probably should check responses
+    let _reponses: Vec<_> = server.send(message).try_collect().await?;
     Ok(())
 }
 
@@ -219,7 +219,7 @@ async fn poll_for_update<D, I>(
     options: Rc<Monitor>,
 ) -> anyhow::Result<()>
 where
-    I: IntoIterator<Item = rr::Name>,
+    I: IntoIterator<Item = rr::rdata::name::NS>,
     D: Backend,
 {
     let results: FuturesUnordered<_> = authorative
@@ -229,7 +229,7 @@ where
                 runtime,
                 dns.clone(),
                 resolver.clone(),
-                server_name,
+                server_name.0,
                 Rc::clone(&options),
             )
         })
@@ -262,17 +262,21 @@ where
     let options = Rc::clone(&options);
     let query = options.get_query();
     loop {
-        if let Ok(response) = server
+        if let Ok(responses) = server
             .lookup(query.clone(), DnsRequestOptions::default())
+            .try_collect::<Vec<_>>()
             .await
         {
-            let answers = response.answers();
-            let hit = options.expectation.satisfied_by(answers);
+            let answers: Vec<_> = responses
+                .into_iter()
+                .flat_map(|response| response.into_message().take_answers())
+                .collect();
+            let hit = options.expectation.satisfied_by(&answers);
             if options.verbose {
                 if hit {
                     println!("{}: match found", &server_name);
                 } else {
-                    let rset = match RecordSet::try_from(answers) {
+                    let rset = match RecordSet::try_from(&answers[..]) {
                         Ok(rs) => format!("{}", rs.data()),
                         Err(e) => format!("{}", e),
                     };
