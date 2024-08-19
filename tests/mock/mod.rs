@@ -7,9 +7,9 @@ use std::{
 
 use anyhow::anyhow;
 use async_trait::async_trait;
-use futures::future;
+use futures::{future, stream};
 use trust_dns_client::{
-    op::update_message::UpdateMessage,
+    op::UpdateMessage,
     proto::{
         error::ProtoError,
         op::{Message, OpCode, Query},
@@ -29,6 +29,7 @@ use tdns_cli::{Backend, Resolver, Runtime};
 
 pub type Handle<T> = Arc<Mutex<T>>;
 pub type FutureResult<T, E> = future::Ready<Result<T, E>>;
+pub type ResultStream<T, E> = stream::Once<FutureResult<T, E>>;
 
 #[derive(Debug, Clone)]
 pub struct Zone(Vec<rr::Record>);
@@ -50,17 +51,20 @@ impl Zone {
             .iter_mut()
             .find(|r| r.record_type() == update.record_type() && r.name() == update.name())
         {
-            record.set_rdata(update.rdata().clone());
+            record.set_data(update.data().cloned());
         }
     }
 }
 
 pub fn parse_rdata(rtype: &str, rdata: &str) -> anyhow::Result<rr::RData> {
-    use rr::{rdata::SOA, RData};
+    use rr::{
+        rdata::{NS, SOA},
+        RData,
+    };
     match rtype {
         "A" => Ok(RData::A(rdata.parse()?)),
         "AAAA" => Ok(RData::AAAA(rdata.parse()?)),
-        "NS" => Ok(RData::NS(rdata.parse()?)),
+        "NS" => Ok(RData::NS(NS(rdata.parse()?))),
         "SOA" => {
             let parts: Vec<_> = rdata.split(' ').collect();
             // This quite ugly -- is there a better way?
@@ -146,8 +150,8 @@ impl Backend for MockBackend {
     ) -> Result<Self::Client, ProtoError> {
         Ok(self.open_client(addr))
     }
-    fn open_resolver(&mut self, addr: SocketAddr) -> Result<Self::Resolver, ResolveError> {
-        Ok(self.open_client(addr))
+    fn open_resolver(&mut self, addr: SocketAddr) -> Self::Resolver {
+        self.open_client(addr)
     }
     fn open_system_resolver(&mut self) -> Result<Self::Resolver, ResolveError> {
         if let Some(addr) = self.resolv_conf {
@@ -198,14 +202,14 @@ impl Server {
                         message.add_answer(record);
                     }
                 }
-                Ok(message.into())
+                DnsResponse::from_message(message)
             }
             OpCode::Update => {
                 let mut zone = self.zone.lock().unwrap();
                 for update in request.updates() {
                     zone.update(update);
                 }
-                Ok(Message::new().into())
+                DnsResponse::from_message(Message::new())
             }
             _ => unimplemented!(),
         }
@@ -214,11 +218,11 @@ impl Server {
 
 impl DnsHandle for Client {
     type Error = ProtoError;
-    type Response = FutureResult<DnsResponse, ProtoError>;
+    type Response = ResultStream<DnsResponse, ProtoError>;
 
     fn send<R: Into<DnsRequest>>(&mut self, request: R) -> Self::Response {
         let mut server = self.0.lock().unwrap();
-        future::ready(server.request(request.into()))
+        stream::once(future::ready(server.request(request.into())))
     }
 }
 

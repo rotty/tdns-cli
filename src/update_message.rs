@@ -1,6 +1,6 @@
 use trust_dns_client::{
     op::{Message, MessageType, OpCode, Query, UpdateMessage},
-    rr::{rdata::NULL, DNSClass, Name, RData, Record, RecordSet, RecordType},
+    rr::{DNSClass, Name, Record, RecordSet, RecordType},
 };
 
 // This code is taken from `update_message.rs` in the `trust_dns` crate, and
@@ -110,7 +110,7 @@ pub fn delete_rrset(mut record: Record, zone_origin: Name) -> Message {
     // the TTL should be 0
     record.set_ttl(0);
     // the rdata must be null to delete all rrsets
-    record.set_rdata(RData::NULL(NULL::new()));
+    record.set_data(None);
     message.add_update(record);
 
     message
