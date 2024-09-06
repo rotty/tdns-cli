@@ -6,14 +6,14 @@ use std::{
 };
 
 use digest::KeyInit;
-use hmac::{Hmac, Mac};
-use once_cell::sync::Lazy;
-use trust_dns_client::{
+use hickory_client::{
     op,
     proto::error::{ProtoError, ProtoResult},
     rr,
     serialize::binary::{BinEncodable, BinEncoder},
 };
+use hmac::{Hmac, Mac};
+use once_cell::sync::Lazy;
 
 #[derive(Debug)]
 pub enum Error {
@@ -198,7 +198,7 @@ impl TryFrom<TSIG> for rr::RData {
         encoder.set_canonical_names(true);
         tsig.emit(&mut encoder)?;
         Ok(rr::RData::Unknown {
-            code: 250,
+            code: rr::RecordType::Unknown(250),
             rdata: rr::rdata::null::NULL::with(encoded),
         })
     }

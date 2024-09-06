@@ -1,9 +1,9 @@
-use trust_dns_client::{
+use hickory_client::{
     op::{Message, MessageType, OpCode, Query, UpdateMessage},
     rr::{DNSClass, Name, Record, RecordSet, RecordType},
 };
 
-// This code is taken from `update_message.rs` in the `trust_dns` crate, and
+// This code is taken from `update_message.rs` in the `hickory` crate, and
 // adapted to omit EDNS.
 pub fn create(rrset: RecordSet, zone_origin: Name) -> Message {
     // TODO: assert non-empty rrset?
