@@ -8,12 +8,12 @@ use chrono::DateTime;
 use data_encoding::{Encoding, BASE32, BASE64, HEXLOWER};
 use futures::stream::{FuturesUnordered, Stream};
 
-use trust_dns_client::proto::rr::dnssec::Nsec3HashAlgorithm;
-use trust_dns_client::rr::{
+use hickory_client::proto::rr::dnssec::Nsec3HashAlgorithm;
+use hickory_client::rr::{
     self,
     rdata::{self, caa, DNSSECRData},
 };
-use trust_dns_resolver::error::ResolveError;
+use hickory_resolver::error::ResolveError;
 
 use crate::Resolver;
 

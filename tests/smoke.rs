@@ -1,13 +1,13 @@
 use std::{pin::Pin, time::Duration};
 
 use futures::{prelude::*, stream::FuturesUnordered};
+use hickory_client::rr;
 use tdns_cli::{
     record::RecordSet,
     update::{monitor_update, perform_update, Expectation, Monitor, Operation, Update},
     Backend,
 };
 use tokio::{runtime::Runtime, time::sleep};
-use trust_dns_client::rr;
 
 mod mock;
 use mock::{parse_rdata, MockBackend, ZoneEntries};

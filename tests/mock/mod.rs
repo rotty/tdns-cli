@@ -8,7 +8,7 @@ use std::{
 use anyhow::anyhow;
 use async_trait::async_trait;
 use futures::{future, stream};
-use trust_dns_client::{
+use hickory_client::{
     op::UpdateMessage,
     proto::{
         error::ProtoError,
@@ -18,7 +18,7 @@ use trust_dns_client::{
         DnsHandle,
     },
 };
-use trust_dns_resolver::{
+use hickory_resolver::{
     error::{ResolveError, ResolveErrorKind},
     lookup,
     lookup::Lookup,
@@ -220,7 +220,7 @@ impl DnsHandle for Client {
     type Error = ProtoError;
     type Response = ResultStream<DnsResponse, ProtoError>;
 
-    fn send<R: Into<DnsRequest>>(&mut self, request: R) -> Self::Response {
+    fn send<R: Into<DnsRequest>>(&self, request: R) -> Self::Response {
         let mut server = self.0.lock().unwrap();
         stream::once(future::ready(server.request(request.into())))
     }
