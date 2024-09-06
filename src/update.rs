@@ -8,12 +8,12 @@ use std::{
 
 use anyhow::anyhow;
 use futures::stream::{FuturesUnordered, TryStreamExt};
-use tokio::time::{sleep, timeout};
-use trust_dns_client::{
+use hickory_client::{
     op::{Message, Query},
     proto::xfer::{DnsHandle, DnsRequestOptions},
     rr,
 };
+use tokio::time::{sleep, timeout};
 
 use crate::{
     record::{RecordSet, RsData},
@@ -180,7 +180,7 @@ where
     } else {
         return Err(anyhow!("SOA record for {} not found", options.zone));
     };
-    let mut server = dns.open(runtime, master).await?;
+    let server = dns.open(runtime, master).await?;
     // TODO: probably should check responses
     let _reponses: Vec<_> = server.send(message).try_collect().await?;
     Ok(())
@@ -257,7 +257,7 @@ where
     if options.exclude.contains(&ip) {
         return Ok(());
     }
-    let mut server = dns.open(runtime, SocketAddr::new(ip, 53)).await?;
+    let server = dns.open(runtime, SocketAddr::new(ip, 53)).await?;
     let server_name = server_name.clone();
     let options = Rc::clone(&options);
     let query = options.get_query();

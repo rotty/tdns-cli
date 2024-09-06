@@ -3,13 +3,13 @@ use std::net::SocketAddr;
 
 use async_trait::async_trait;
 use tokio::net::{TcpStream, UdpSocket};
-use trust_dns_client::{
+use hickory_client::{
     client::{AsyncClient, ClientFuture, ClientHandle},
     rr,
     tcp::TcpClientStream,
     udp::UdpClientStream,
 };
-use trust_dns_resolver::{
+use hickory_resolver::{
     config::{NameServerConfig, Protocol, ResolverConfig, ResolverOpts},
     error::{ResolveError, ResolveResult},
     lookup, lookup_ip,
@@ -78,7 +78,7 @@ impl Backend for TcpBackend {
         runtime: &Runtime,
         addr: SocketAddr,
     ) -> Result<Self::Client, ProtoError> {
-        use trust_dns_resolver::proto::iocompat::AsyncIoTokioAsStd;
+        use hickory_resolver::proto::iocompat::AsyncIoTokioAsStd;
         let (stream, sender) = TcpClientStream::<AsyncIoTokioAsStd<TcpStream>>::new(addr);
         let (client, bg) = AsyncClient::new(Box::new(stream), sender, None).await?;
         runtime.spawn(bg);

@@ -11,8 +11,8 @@ use data_encoding::BASE64;
 use futures::{future, StreamExt};
 use structopt::StructOpt;
 use tokio::runtime::Runtime;
-use trust_dns_client::{proto::error::ProtoError, rr};
-use trust_dns_resolver::error::{ResolveError, ResolveErrorKind};
+use hickory_client::{proto::error::ProtoError, rr};
+use hickory_resolver::error::{ResolveError, ResolveErrorKind};
 
 use tdns_cli::{
     query::{self, perform_query, Query},

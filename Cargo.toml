@@ -16,8 +16,8 @@ maintenance = { status = "actively-developed" }
 
 [dependencies]
 async-trait = "0.1.57"
-trust-dns-client = { version = "0.23.2", features = ["dnssec-ring"] }
-trust-dns-resolver = "0.23.2"
+hickory-client = { version = "0.24.1", features = ["dnssec-ring"] }
+hickory-resolver = "0.24.1"
 structopt = "0.3.1"
 futures = "0.3.1"
 anyhow = "1.0"
