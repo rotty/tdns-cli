@@ -54,7 +54,7 @@ impl RecordSet {
         &self.data
     }
 
-    pub fn iter_data(&self) -> RsDataIter {
+    pub fn iter_data(&self) -> RsDataIter<'_> {
         let inner = match &self.data {
             RsData::TXT(txts) => RsDataIterInner::TXT(txts.iter()),
             RsData::A(addrs) => RsDataIterInner::A(addrs.iter()),
