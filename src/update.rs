@@ -234,7 +234,7 @@ where
             )
         })
         .collect();
-    results.try_collect().await?;
+    results.try_collect::<()>().await?;
     Ok(())
 }
 
