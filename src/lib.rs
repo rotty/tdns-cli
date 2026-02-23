@@ -1,3 +1,5 @@
+#![allow(clippy::result_large_err)]
+
 pub mod query;
 pub mod record;
 pub mod tsig;
